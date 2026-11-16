@@ -44,8 +44,26 @@ Usuarios y grupos de ejemplo. Los mismos nombres de usuario se usan en todos los
 
 ### 2.1 Justificación detallada por servicio
 
-#### Web, base de datos y NTP (B)
-_Pendiente: justificación de B._
+#### Web y base de datos (B)
+
+**Necesidad.** Ecopetrol cotiza en la Bolsa de Valores de Colombia y en la de Nueva York (EC) y tiene más de 19.000 empleados en sedes, refinerías, el Icpet y filiales. Necesita un portal interno que publique información corporativa verificable (sedes, noticias con su fuente) y que le diga a cada empleado cómo conectarse a los servicios de la oficina: carpeta compartida, impresora, hora de la red y carpetas de laboratorio.
+
+**Por qué es adecuado.**
+- **Nginx** sirve el sitio estático con muy pocos recursos y hace de proxy de `/api`, así que todo queda bajo un solo dominio (`www.ecopetrol-ti.duckdns.org`) y Traefik termina el HTTPS.
+- **API en Node.js (Express)** separa los datos de la presentación: las sedes, las noticias y la guía de servicios se leen de la base de datos en lugar de estar escritas a mano en el HTML.
+- **PostgreSQL 16** gestionado por Dokploy: base relacional libre y madura, sin puerto publicado (solo la API la alcanza por la red interna) y con respaldos desde el propio panel. Al arrancar, la API crea el esquema y carga los datos de forma idempotente.
+- **Portal TI del empleado**: reduce las consultas al equipo de soporte y sirve como guion de la demo de los demás servicios.
+
+#### NTP: hora de la red (B)
+
+**Necesidad.** Las refinerías, los oleoductos y las operaciones financieras dependen de registros de eventos. Tras el ciberataque de julio de 2026, la investigación forense necesita que las marcas de tiempo de todos los equipos coincidan. Además, la validez de los certificados HTTPS (fechas de inicio y fin) y la autenticación con Kerberos dependen de que los relojes de cliente y servidor coincidan, y comparar logs entre servicios (NIS, NFS, Samba, Dokploy) solo tiene sentido con una hora común.
+
+**Por qué es adecuado.**
+- **chrony** es el cliente/servidor NTP por defecto en las distribuciones Linux modernas: converge rápido y tolera redes intermitentes.
+- El servidor se sincroniza con `pool.ntp.org` y `south-america.pool.ntp.org` y sirve la hora solo a la subred de la oficina (`allow 172.20.10.0/28`).
+- Con `local stratum 10` sigue sirviendo hora aunque se caiga internet, de modo que los equipos de la red se mantienen sincronizados entre sí.
+- Corre en un contenedor con la capacidad `SYS_TIME`, por lo que ajusta el reloj de todo el servidor; el cliente NTP del host se desactiva para que no compitan.
+- Lo usan de forma nativa Windows (`w32tm`), Linux (`chrony` o `systemd-timesyncd`) y macOS.
 
 #### NIS y NFS (C)
 _Pendiente: justificación de C._
