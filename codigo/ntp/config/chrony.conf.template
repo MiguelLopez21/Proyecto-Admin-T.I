@@ -1,0 +1,24 @@
+# chrony.conf de srv-ecopetrol (lo genera entrypoint.sh a partir de esta plantilla).
+
+# Fuentes de hora en internet: 4 servidores del pool mundial y los de Sudamérica.
+pool pool.ntp.org iburst maxsources 4
+pool south-america.pool.ntp.org iburst
+
+# Guarda la deriva del reloj para corregir más rápido al reiniciar (volumen ntp_drift).
+driftfile /var/lib/chrony/chrony.drift
+
+# Si al arrancar el reloj está desfasado más de 1 s, lo corrige de un salto
+# (solo en las 3 primeras actualizaciones); después lo ajusta de forma gradual.
+makestep 1.0 3
+
+# Subred(es) a las que se les sirve hora. Sin "allow", chrony NO responde a los clientes.
+${ALLOW_LINES}
+
+# Si no hay internet (por ejemplo, en la demo), sigue sirviendo su propio reloj
+# como estrato 10: los clientes se mantienen sincronizados con el servidor.
+local stratum 10
+
+# Socket de chronyc dentro del contenedor.
+bindcmdaddress /run/chrony/chronyd.sock
+
+# Sin "rtcsync": en un contenedor no hay acceso al reloj de hardware (RTC).
