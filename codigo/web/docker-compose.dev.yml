@@ -1,0 +1,31 @@
+# Solo para probar en local (NO se usa en Dokploy):
+#   docker network create dokploy-network        (una vez; en el servidor con Dokploy ya existe)
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+# Agrega un PostgreSQL de prueba y publica la web en http://localhost:8080
+services:
+  ecopetrol-web:
+    ports:
+      - "8080:80"
+
+  ecopetrol-api:
+    depends_on:
+      ecopetrol-db-dev:
+        condition: service_healthy
+
+  ecopetrol-db-dev:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ecopetrol
+      POSTGRES_USER: ecopetrol_app
+      POSTGRES_PASSWORD: ${DEV_DB_PASSWORD:-solo-pruebas-local}
+    volumes:
+      - ecopetrol_db_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecopetrol_app -d ecopetrol"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  ecopetrol_db_dev:
