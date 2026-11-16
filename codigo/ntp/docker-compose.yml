@@ -1,0 +1,19 @@
+services:
+  ntp:
+    build: .
+    restart: unless-stopped
+    # chrony ajusta el reloj del kernel del HOST (compartido). Docker Swarm (tipo "Stack")
+    # ignora cap_add: en Dokploy la app debe ser tipo "Docker Compose".
+    cap_add:
+      - SYS_TIME
+    ports:
+      - "123:123/udp"
+    environment:
+      ALLOW_SUBNET: ${ALLOW_SUBNET:?define ALLOW_SUBNET en .env o en Dokploy}
+      AJUSTAR_RELOJ: ${AJUSTAR_RELOJ:-true}
+      TZ: ${TZ:-America/Bogota}
+    volumes:
+      - ntp_drift:/var/lib/chrony
+
+volumes:
+  ntp_drift:
