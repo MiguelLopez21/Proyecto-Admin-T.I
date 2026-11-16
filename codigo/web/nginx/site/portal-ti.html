@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Portal TI · Ecopetrol TI</title>
+  <meta name="description" content="Cómo conectarse a los servicios de red de la sede Bogotá.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23f2a541'/%3E%3Ctext x='16' y='22' font-family='Arial' font-weight='700' font-size='15' text-anchor='middle' fill='%230f3d56'%3EET%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="encabezado">
+    <div class="contenedor">
+      <a class="logo" href="/"><span class="marca">ET</span><span>Ecopetrol TI <small>· sede Bogotá</small></span></a>
+      <nav class="menu" aria-label="Principal">
+        <a href="/">Inicio</a>
+        <a href="/nosotros">Quiénes somos</a>
+        <a href="/sedes">Sedes</a>
+        <a href="/noticias">Noticias</a>
+        <a href="/portal-ti">Portal TI</a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="titulo-pagina">
+    <div class="contenedor">
+      <h1>Portal TI del empleado</h1>
+      <p>Guía rápida para conectarse a los servicios de la red de la oficina. Use su usuario de red; nunca comparta su contraseña.</p>
+    </div>
+  </section>
+
+  <main>
+    <div class="contenedor">
+      <div class="aviso"><strong>Primera vez:</strong> para que su navegador confíe en los sitios internos, instale el certificado de la CA del laboratorio (<code class="comando">ca.crt</code>) que entrega el equipo de TI. En Windows: doble clic → Instalar certificado → Equipo local → «Entidades de certificación raíz de confianza».</div>
+      <div class="rejilla" id="servicios"><p class="cargando">Cargando servicios…</p></div>
+    </div>
+  </main>
+  <footer class="pie">
+    <div class="contenedor">
+      <div>
+        <strong>Proyecto académico — Universidad del Quindío.</strong> No es un sitio oficial de Ecopetrol.<br>
+        Administración de Infraestructura de TI · 2026. Datos públicos con su fuente enlazada.
+      </div>
+      <div class="estado" id="estado"><span class="punto"></span> Comprobando estado…</div>
+    </div>
+  </footer>
+  <script src="/app.js" defer></script>
+</body>
+</html>
