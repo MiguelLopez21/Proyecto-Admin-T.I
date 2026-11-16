@@ -1,0 +1,20 @@
+# /etc/netplan/60-static.yaml  — IP fija de srv-ecopetrol
+# Red de la demo: hotspot (iPhone) 172.20.10.0/28, gateway 172.20.10.1.
+# Se elige .14 (la última del rango) para no chocar con las IP que reparte el DHCP del hotspot.
+# Requisitos: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg con "network: {config: disabled}"
+#             y quitar /etc/netplan/50-cloud-init.yaml.
+# Permisos: sudo chmod 600 /etc/netplan/60-static.yaml   ·   Aplicar: sudo netplan try
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    enp0s3:
+      dhcp4: false
+      dhcp6: false
+      addresses:
+        - 172.20.10.14/28
+      routes:
+        - to: default
+          via: 172.20.10.1
+      nameservers:
+        addresses: [172.20.10.1, 1.1.1.1]

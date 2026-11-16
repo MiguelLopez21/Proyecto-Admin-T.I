@@ -1,3 +1,17 @@
+# Secretos: nunca al repositorio
 .env
-*.pem
+*.env
+!*.env.example
 *.key
+*.pem
+*.crt
+
+# Dependencias
+node_modules/
+
+# Capturas originales sin editar (las publicadas van en capturas/<servicio>/)
+capturas/**/originales/
+
+# Varios
+.DS_Store
+Thumbs.db
