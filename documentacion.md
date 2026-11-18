@@ -221,20 +221,21 @@ bash codigo/ntp/verify.sh server        # 6/6 [OK]: contenedor, Leap status Norm
 docker exec <ntp> chronyc tracking      # Stratum 3, Leap status Normal, "System time" en milisegundos
 docker exec <ntp> chronyc clients       # lista los equipos que consultaron la hora
 ```
-Resultado en el servidor (2026-11-18): estrato 3, `Leap status: Normal`, desfase de **1,6 ms**, 5 fuentes válidas. Desde Windows, `w32tm /stripchart /computer:172.20.10.14` responde.
+Resultado en el servidor (2026-11-18): estrato 3, `Leap status: Normal`, desfase de **1,6 ms**, 5 fuentes válidas. Cliente Windows (`172.20.10.2`): `w32tm /query /source` → `172.20.10.14`, estrato 4, y `w32tm /stripchart` con desfases de **0,1 ms**; en el servidor, `chronyc clients` lo lista.
 
 ### Capturas
 ![](capturas/ntp/01_build-local.png)
 ![](capturas/ntp/02_chronyc-sources-servidor.png)
+![](capturas/ntp/04_windows-w32tm-source.png)
 ![](capturas/ntp/05_dokploy-verify-server.png)
 
-_Pendiente: `ntp/03_cliente-linux` (`chronyc sources` con `^*` en el cliente Linux) y `ntp/04_windows-w32tm-source`._
+_Pendiente: `ntp/03_cliente-linux` (`chronyc sources` con `^*` en el cliente Linux)._
 
 ### Problemas encontrados
 | Síntoma | Causa | Solución |
 |---|---|---|
 | En los logs de chrony: `System clock was stepped by 60954.902717 seconds` (casi 17 h) | La VM se había congelado y VirtualBox la dejó en estado *guardado* al apagar Windows; al reanudarla, su reloj seguía en la hora en que se detuvo | `makestep 1.0 3` corrigió el reloj de un salto al arrancar chrony. Sin un servidor NTP en la red, todos los registros de esas horas habrían quedado con la fecha equivocada |
-| En cada arranque de la VM, chrony corregía unos 6 s (`stepped by 5.937311 seconds`, `6.492441 seconds`) | La VM toma la hora inicial del reloj de Windows, que estaba unos 4-6 s desfasado (`w32tm /stripchart` contra el servidor mostraba `+04.15s`) | Lo corrige `makestep`. Configurar Windows como cliente del servidor (`w32tm`, arriba) también arregla el reloj del anfitrión |
+| En cada arranque de la VM, chrony corregía unos 6 s (`stepped by 5.937311 seconds`, `6.492441 seconds`) | La VM toma la hora inicial del reloj de Windows, que estaba unos 4-6 s desfasado (`w32tm /stripchart` contra el servidor mostraba `+04.15s`) | Lo corrige `makestep`. La causa de fondo: el servicio de hora de Windows estaba **deshabilitado** (`w32time` en *Disabled*, `Type=NoSync`), así que el anfitrión no sincronizaba con nada. Al configurarlo como cliente del servidor (`w32tm`, arriba) el desfase pasó de +4,15 s a 0,1 ms |
 | El contenedor de prueba y el de Dokploy no pueden estar a la vez | Los dos publican 123/UDP: el segundo falla con `address already in use` | Apagar el de prueba (`docker compose down` en `~/pruebas/ntp`) antes de desplegar en Dokploy |
 | (Previsto en el diseño) `adjtimex(0x8001) failed: Operation not permitted` | Falta `SYS_TIME`, o la app se crea como *Stack*, que ignora `cap_add` | `cap_add: SYS_TIME` y app tipo **Docker Compose** |
 
