@@ -39,7 +39,83 @@ Reglas: capturas enlazadas con ruta relativa `![](capturas/<servicio>/NN_nombre.
 
 ## 0. Introducción y entorno
 
-_Pendiente (A y D): empresa (Ecopetrol), objetivo del proyecto, equipo, tabla de valores compartidos (IP, dominio, puertos, UID/GID), versiones de software._
+### Empresa, objetivo y equipo
+
+_Pendiente (D): empresa (Ecopetrol), objetivo del proyecto y equipo. La descripción de la empresa y la justificación de cada servicio están en `analisis.md` §1 y §2._
+
+### Entorno
+
+Un solo servidor, `srv-ecopetrol`, aloja todos los servicios. Los que usan HTTP o se pueden empaquetar en contenedores se despliegan con **Dokploy** desde este repositorio; NIS y NFS se instalan en el **host** con scripts, porque dependen del kernel (`nfsd`) y de RPC. Detalle de la VM en §1 y arquitectura en `diagrama.mmd`.
+
+| Elemento | Valor |
+|---|---|
+| Servidor | VM `srv-ecopetrol` en VirtualBox 7.2.6 (EFI, AMD-V), 2 vCPU, 6 GB de RAM, 40 GB de disco, 2 GB de swap |
+| Sistema operativo | Ubuntu Server 24.04.5 LTS, kernel 6.8.0-149 |
+| Red de la demo | Hotspot de celular, subred **`172.20.10.0/28`** (no /24), gateway y DNS `172.20.10.1` |
+| IP del servidor | **`172.20.10.14`** fija (netplan), adaptador puente |
+| Dominio | **`ecopetrol-ti.duckdns.org`** (DuckDNS, apunta a la IP privada; cualquier subdominio resuelve igual) |
+| Sitio web | `https://www.ecopetrol-ti.duckdns.org` |
+| Panel de Dokploy | `https://panel.ecopetrol-ti.duckdns.org` (o `http://172.20.10.14:3000`) |
+| Certificado | CA propia del laboratorio; los clientes importan `ca.crt` una vez (§3) |
+| Acceso de administración | SSH con llave, usuario `sysadmin` |
+| Dominio NIS / grupo de trabajo SMB | `ecopetrol.local` / `ECOPETROL` |
+| Zona horaria | America/Bogota; la hora la sirve el contenedor chrony (§4), el NTP del host está desactivado |
+
+Clientes de prueba:
+
+| Cliente | IP | Uso |
+|---|---|---|
+| VM `cli-icpet` (Ubuntu Server 24.04.5, 1 vCPU, 2 GB, puente sobre el Wi-Fi) | `172.20.10.13` fija | NTP (chrony), NIS, NFS y pruebas Linux de Samba/CUPS |
+| Equipo físico Windows 11 (anfitrión de las VM) | `172.20.10.2` (DHCP del hotspot) | Samba, CUPS, Web y hora con `w32tm` |
+
+### Puertos
+
+Todos en `172.20.10.14`. La tabla completa, con el componente de cada servicio, está en `analisis.md` §3.
+
+| Puerto | Protocolo | Servicio | Despliegue |
+|---|---|---|---|
+| 22 | TCP | SSH (administración) | Host |
+| 80, 443 | TCP (+443/UDP HTTP/3) | Traefik: Web y panel por dominio, TLS | Dokploy |
+| 3000 | TCP | Panel de Dokploy (acceso directo) | Dokploy |
+| 123 | UDP | NTP (chrony) | Dokploy (Compose) |
+| 445 | TCP | Samba (SMB 2/3, sin NetBIOS) | Dokploy (Compose) |
+| 631 | TCP | CUPS (IPP, administración web) | Dokploy (Compose) |
+| 111, 834, 835 | TCP/UDP | NIS (rpcbind, ypserv, yppasswdd) | Host |
+| 2049 | TCP | NFSv4 | Host |
+| 5432 | TCP | PostgreSQL: **no se publica**, solo red interna `dokploy-network` | Dokploy (Database) |
+
+Los servicios que filtran por red usan la misma subred: chrony (`ALLOW_SUBNET`), CUPS (`ALLOW_SUBNET`), NFS (`exports`) y el cortafuegos opcional (§12) deben quedar en `172.20.10.0/28`.
+
+### Usuarios y grupos (UID/GID)
+
+Los mismos nombres en todos los servicios. NIS y NFS comparten UID y GID; Samba crea sus cuentas en su contenedor con los mismos UID y GID; CUPS solo usa `admin.ti` dentro de su contenedor.
+
+| Grupo (GID) | Uso | Usuarios (UID) |
+|---|---|---|
+| `ti` (3001) | Administración de la infraestructura | `admin.ti` (2001) |
+| `icpet` (3002) | Laboratorios del Icpet (NFS) | `lab.icpet1` (2011), `lab.icpet2` (2012) |
+| `administrativa` (3003) | Oficina de Bogotá (Samba) | `fin.bogota` (2021), `rrhh.bogota` (2022) |
+| `lpadmin` (contenedor CUPS) | Administración de impresoras | `admin.ti` |
+
+Las contraseñas no se guardan en el repositorio: van en las variables de entorno de Dokploy o en archivos `.env` locales (hay un `.env.example` por servicio).
+
+### Versiones de software
+
+| Componente | Versión | Origen |
+|---|---|---|
+| VirtualBox | 7.2.6 | Anfitrión Windows 11 |
+| Ubuntu Server | 24.04.5 LTS (kernel 6.8.0-149) | VM |
+| OpenSSH | 9.6p1 | Paquete de Ubuntu |
+| Docker | 28.5.0 (modo Swarm) | Instalado por Dokploy |
+| Dokploy | v0.31.1 | `dokploy/dokploy` |
+| Traefik | v3.6.25 | Instalado por Dokploy |
+| PostgreSQL | 16.16 (base del proyecto) · 16.15 (base interna de Dokploy) | Dokploy Database |
+| chrony (NTP) | 4.5 | Imagen `alpine:3.20` (servidor) · paquete de Ubuntu 4.5 (cliente) |
+| Nginx (Web) | 1.27 | Imagen `nginx:1.27-alpine` |
+| Node.js (API) | 20 | Imagen `node:20-alpine` |
+| Samba | serie 4.19 | Imagen `alpine:3.20` (versión exacta al desplegar: `smbd --version`) |
+| CUPS | 2.4 | Imagen `debian:12-slim` (versión exacta al desplegar: `cupsd -v`) |
+| NIS / NFS | _pendiente (C)_ | Paquetes de Ubuntu 24.04 |
 
 ## 1. VM y red (A)
 
@@ -90,7 +166,18 @@ ip -br a show enp0s3         # 172.20.10.14/28
 | La VM tardaba ~7 min en arrancar, se congelaba 1-3 min por ratos y una vez 5 h seguidas (`soft lockup - CPU#1 stuck for 17940s!` en `journalctl -b`) | Windows tenía cargado el hipervisor de Hyper-V, así que VirtualBox no podía usar AMD-V directamente y corría en modo NEM (`VBox.log`: "NEM … Snail execution mode", "TM: Giving up catch-up"). El hipervisor lo forzaban la Integridad de memoria (VBS/HVCI), Windows Hello con inicio de sesión mejorado y la característica *Plataforma de máquina virtual* | Desactivar las cuatro cosas: `bcdedit /set hypervisorlaunchtype off`, `DeviceGuard\EnableVirtualizationBasedSecurity`=0, `Scenarios\HypervisorEnforcedCodeIntegrity\Enabled`=0, `Scenarios\WindowsHello\Enabled`=0 y `Disable-WindowsOptionalFeature VirtualMachinePlatform`; reiniciar. Comprobación: `(Get-CimInstance Win32_ComputerSystem).HypervisorPresent` = False y `VBox.log` dice "AMD-V w/ nested paging". Después: arranque y SSH en <1 min, 0 *soft lockups*. Costo: WSL2 y Docker Desktop no funcionan mientras esté así |
 | Al pasar al hotspot la VM quedó sin red | El adaptador puente seguía sobre el Ethernet, que se había desconectado | `VBoxManage controlvm srv-ecopetrol nic1 bridged "<adaptador Wi-Fi>"` y `setlinkstate1 off/on` para que pidiera DHCP; luego netplan con IP fija |
 | Después de fijar la IP, Swarm seguía anunciando la IP de casa (`docker node inspect self` → `192.168.1.28`) | Swarm guarda la `advertise-addr` con la que se inicializó | Respaldo de `/var/lib/docker/swarm` y `docker swarm init --force-new-cluster --advertise-addr 172.20.10.14`; los servicios y el heartbeat de 60 s se conservaron |
+| La VM cliente `cli-icpet` arrancó sin red: `enp0s3` en estado `DOWN` y `/etc/netplan/` vacío | Se instaló con el cable virtual desconectado (para no gastar datos móviles en actualizaciones); el instalador no vio red y no escribió ninguna configuración | Desde la consola, `sudo ip link set enp0s3 up` y `sudo dhcpcd enp0s3` para tener red temporal; luego, por SSH, netplan con IP fija `172.20.10.13/28` |
 | SSH fallaba con `Host key verification failed` después de reconectar | El DHCP le dio otra IP a la VM (`.88` → `.28`) y esa IP no estaba en `known_hosts` | Comprobar que la huella ED25519 era la misma y agregarla con `ssh-keyscan`. La IP fija de la demo evita el problema |
+
+### Cliente de pruebas Linux (`cli-icpet`)
+
+VM aparte para probar los servicios desde un cliente real: Ubuntu Server 24.04.5 (misma ISO del servidor, instalación desatendida con `VBoxManage unattended install`), EFI, 1 vCPU, 2 GB de RAM, 15 GB de disco, adaptador puente sobre el Wi-Fi e IP fija **`172.20.10.13/28`** con netplan (`/etc/netplan/60-static.yaml`, red de cloud-init desactivada). Usuario `sysadmin` con la misma llave SSH del servidor. Snapshot `00-cliente-base` (VM apagada): IP fija y cliente NTP configurado, antes de NIS/NFS.
+
+```bash
+ip -br a show enp0s3          # 172.20.10.13/28
+ping -c2 172.20.10.14         # llega al servidor
+getent hosts www.ecopetrol-ti.duckdns.org   # 172.20.10.14
+```
 
 ## 2. Dokploy (A)
 
@@ -221,15 +308,14 @@ bash codigo/ntp/verify.sh server        # 6/6 [OK]: contenedor, Leap status Norm
 docker exec <ntp> chronyc tracking      # Stratum 3, Leap status Normal, "System time" en milisegundos
 docker exec <ntp> chronyc clients       # lista los equipos que consultaron la hora
 ```
-Resultado en el servidor (2026-11-18): estrato 3, `Leap status: Normal`, desfase de **1,6 ms**, 5 fuentes válidas. Cliente Windows (`172.20.10.2`): `w32tm /query /source` → `172.20.10.14`, estrato 4, y `w32tm /stripchart` con desfases de **0,1 ms**; en el servidor, `chronyc clients` lo lista.
+Resultado en el servidor (2026-11-18): estrato 3, `Leap status: Normal`, desfase de **1,6 ms**, 5 fuentes válidas. Cliente Windows (`172.20.10.2`): `w32tm /query /source` → `172.20.10.14`, estrato 4, y `w32tm /stripchart` con desfases de **0,1 ms**; en el servidor, `chronyc clients` lo lista. Cliente Linux `cli-icpet` (`172.20.10.13`): `chronyc sources` muestra `^* 172.20.10.14`, estrato 4, `Leap status: Normal`, y `verify.sh client 172.20.10.14` pasa 2/2.
 
 ### Capturas
 ![](capturas/ntp/01_build-local.png)
 ![](capturas/ntp/02_chronyc-sources-servidor.png)
+![](capturas/ntp/03_cliente-linux-sources.png)
 ![](capturas/ntp/04_windows-w32tm-source.png)
 ![](capturas/ntp/05_dokploy-verify-server.png)
-
-_Pendiente: `ntp/03_cliente-linux` (`chronyc sources` con `^*` en el cliente Linux)._
 
 ### Problemas encontrados
 | Síntoma | Causa | Solución |
@@ -421,9 +507,9 @@ Orden de despliegue y comandos en `codigo/servidor/CHECKLIST.md` §7. Estado al 
 
 | Servicio | Despliegue | `verify.sh server` | Prueba de cliente | Captura |
 |---|---|---|---|---|
-| NTP | Dokploy (Compose) | 6/6 OK | Windows `w32tm /stripchart` responde; Linux `^*` _pendiente_ | `ntp/05_dokploy-verify-server.png` |
-| Base de datos | Dokploy (Database) | — | _pendiente (desde la web)_ | `web/05_bd-dokploy.png` |
-| Web | _pendiente_ | | | |
+| NTP | Dokploy (Compose) | 6/6 OK | Linux `cli-icpet`: `^*` y `verify.sh client` 2/2 OK; Windows: fuente `172.20.10.14`, 0,1 ms | `ntp/03`, `ntp/04`, `ntp/05` |
+| Base de datos | Dokploy (Database) | — (sin puerto publicado) | La API la lee: `/api/health` `db: ok`, 5 sedes | `web/05`, `web/02` |
+| Web | Dokploy (Compose) + autodeploy por sondeo | 7/7 OK | `verify.sh client` 4/4 (HTTPS sin `-k`); navegador Windows con la CA | `web/01`–`web/06b` | |
 | NIS | _pendiente (C)_ | | | |
 | NFS | _pendiente (C)_ | | | |
 | Samba | _pendiente (D)_ | | | |
