@@ -101,6 +101,23 @@ echo | openssl s_client -connect panel.ecopetrol-ti.duckdns.org:443 \
 
 Antes de cada despliegue: `sudo ss -tulpn` para confirmar que el puerto está libre, y `timedatectl` para confirmar que el NTP del host sigue inactivo.
 
+## 7b. Cortafuegos (extra, opcional)
+
+UFW solo no sirve: Docker publica sus puertos en la cadena FORWARD antes de que UFW los vea. `ufw.sh` cierra el anfitrión con UFW **y** filtra la cadena `DOCKER-USER` para que a los contenedores solo lleguen las subredes permitidas. Se corre **al final**, cuando ya estén todos los servicios:
+
+```bash
+# Por SSH conviene programar una reversión por si algo falla, y cancelarla al comprobar
+sudo systemd-run --unit=ufw-revertir --on-active=5min /bin/bash codigo/servidor/ufw.sh --quitar
+sudo PUERTOS_HOST="<puertos de NIS/NFS>" bash codigo/servidor/ufw.sh   # demo: solo 172.20.10.0/28
+sudo systemctl stop ufw-revertir.timer
+sudo bash codigo/servidor/ufw.sh --estado
+```
+
+- NIS y NFS corren en el anfitrión, así que **sí** pasan por UFW: hay que poner sus puertos en `PUERTOS_HOST` (NFSv4: `2049/tcp`; NIS: `111` más los puertos de `ypserv`/`ypbind`, que deben quedar fijos para poder abrirlos).
+- En casa: `SUBREDES="172.20.10.0/28 192.168.1.0/24"`.
+- Probado el 2026-11-18: con solo la /28, desde `192.168.1.x` el panel (3000) y el HTTPS (443) dan timeout y el kernel registra `[DOCKER-USER BLOQUEADO]`. SSH sigue entrando, el contenedor NTP sigue sincronizando hacia afuera y las reglas sobreviven a un reinicio y a reiniciar Traefik.
+- Revertir: `sudo bash codigo/servidor/ufw.sh --quitar`.
+
 ## 8. Antes de la demo
 
 - [ ] `sudo ss -tulpn` → solo los puertos de la tabla común (captura `servidor/09_ss-tulpn-puertos`).
