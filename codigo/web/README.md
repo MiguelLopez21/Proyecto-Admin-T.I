@@ -91,7 +91,23 @@ La semilla usa `ON CONFLICT DO NOTHING`, así que reiniciar o redesplegar la API
      ```
 3. **Domains** → Add Domain: Host `www.ecopetrol-ti.duckdns.org`, Path `/`, Service Name **`ecopetrol-web`**, Container Port **80**, HTTPS **on**, Certificate Provider **None** (Traefik usa el certificado cargado; el SAN `*.ecopetrol-ti.duckdns.org` cubre `www`). Opcional: otro dominio para `ecopetrol-ti.duckdns.org` sin `www`.
 4. **Deploy.** En *Logs* de `ecopetrol-api` debe salir `esquema y semilla listos: 5 sedes, 5 noticias, 6 servicios TI`.
-5. **Autodeploy**: pestaña *Deployments* → copiar el webhook → GitHub → Settings → Webhooks → Add webhook (content type `application/json`, evento *push*).
+5. **Autodeploy.** El webhook normal (GitHub → Settings → Webhooks) **no sirve aquí**: GitHub tendría que conectarse al servidor, y `172.20.10.14` es una IP privada. En su lugar el servidor revisa GitHub cada minuto y, si `main` cambió, llama él mismo al webhook de Dokploy (`autodeploy/`):
+   1. En Dokploy, pestaña *General* del compose: activar **Autodeploy**. En *Deployments*, copiar la **Webhook URL**.
+   2. En el servidor:
+      ```bash
+      sudo install -m 755 autodeploy/autodeploy-sondeo.sh /usr/local/sbin/
+      sudo install -m 644 autodeploy/autodeploy-sondeo.{service,timer} /etc/systemd/system/
+      sudo install -d -m 700 /etc/ecopetrol
+      sudo tee /etc/ecopetrol/autodeploy.env >/dev/null <<'CONF'
+      WEBHOOK_URL=<Webhook URL de Dokploy>
+      REPO=MiguelLopez21/Proyecto-Admin-T.I
+      BRANCH=main
+      CONF
+      sudo chmod 600 /etc/ecopetrol/autodeploy.env        # la URL es un secreto: no va al repo
+      sudo cp ~/certs/ca.crt /usr/local/share/ca-certificates/ecopetrol-ti-lab-ca.crt && sudo update-ca-certificates
+      sudo systemctl daemon-reload && sudo systemctl enable --now autodeploy-sondeo.timer
+      ```
+   3. Comprobar: `journalctl -u autodeploy-sondeo -f` y hacer un push a `main` → en ≤ 1 min aparece `Cambio en main: … -> …` y `Dokploy: {"message":"Compose deployed successfully"} HTTP 200`, y el despliegue sale en *Deployments* con el mensaje del commit.
 
 Probar sin Dokploy (VM Linux con Docker):
 ```bash
@@ -138,3 +154,5 @@ Salida esperada en el servidor:
 | 404 de Traefik | El dominio apunta a otro servicio o puerto | Service `ecopetrol-web`, port 80 |
 | Certificado `TRAEFIK DEFAULT CERT` | Certificate Provider distinto de None, o falta el certificado | Certificate Provider **None** y certificado cargado en Settings → Certificates |
 | El build falla en Dokploy y en local no | Falta `package-lock.json` en el repositorio | Subirlo (`npm ci` lo exige) |
+| El autodeploy nunca se dispara con el webhook de GitHub | GitHub no puede conectarse a `172.20.10.14` (IP privada, detrás del hotspot) | Sondeo desde el servidor: `autodeploy/autodeploy-sondeo.timer` revisa `git ls-remote` cada minuto y llama al webhook de Dokploy con el formato de GitHub (paso 5 de §6) |
+| El webhook de Dokploy responde `301 {"message":"Branch Not Match"}` | Dokploy lee la rama del campo `ref` del cuerpo y exige la cabecera `X-GitHub-Event` | Enviar `X-GitHub-Event: push` y `"ref":"refs/heads/main"` (lo hace `autodeploy-sondeo.sh`) |
