@@ -1,0 +1,22 @@
+services:
+  cups:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "631:631"
+    environment:
+      CUPS_ADMIN_USER: ${CUPS_ADMIN_USER:-admin.ti}
+      CUPS_ADMIN_PASSWORD: ${CUPS_ADMIN_PASSWORD:?define CUPS_ADMIN_PASSWORD en .env o en Dokploy}
+      ALLOW_SUBNET: ${ALLOW_SUBNET:-192.168.1.0/24}
+    volumes:
+      - cups_config:/etc/cups
+      - cups_pdf:/var/spool/cups-pdf
+    healthcheck:
+      test: ["CMD-SHELL", "lpstat -r | grep -q 'scheduler is running'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  cups_config:
+  cups_pdf:
