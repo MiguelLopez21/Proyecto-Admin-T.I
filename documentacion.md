@@ -179,29 +179,164 @@ echo | openssl s_client -connect panel.ecopetrol-ti.duckdns.org:443 \
 ## 4. NTP (B)
 
 ### Objetivo
-_Pendiente (B)._
+Una sola fuente de hora para toda la red de la oficina. El servidor se sincroniza con `pool.ntp.org` y `south-america.pool.ntp.org` y sirve esa hora por 123/UDP solo a la subred de la demo (`172.20.10.0/28`). Así coinciden los registros de todos los servicios (clave para la investigación forense tras el ciberataque de 2026), y NIS, Samba y los certificados HTTPS no fallan por diferencias de reloj. Código y detalle en `codigo/ntp/README.md`.
+
 ### Instalación (comandos)
+Contenedor propio sobre `alpine:3.20` con **chrony 4.5**, desplegado en Dokploy como **Compose tipo Docker Compose** (no *Stack*: Swarm ignora `cap_add`).
+
+```bash
+# En el servidor, antes de desplegar
+sudo timedatectl set-ntp false      # el NTP del host se apaga: chrony del contenedor es la única autoridad
+sudo ss -ulpn | grep ':123 '        # el puerto debe estar libre
+```
+
+En Dokploy: proyecto `Ecopetrol-TI` → Create Service → Compose `ntp`, branch `main`, Compose Path `./codigo/ntp/docker-compose.yml`, y en *Environment*:
+```
+ALLOW_SUBNET=172.20.10.0/28
+AJUSTAR_RELOJ=true
+TZ=America/Bogota
+```
+
+Decisiones de configuración:
+- `cap_add: SYS_TIME`: el contenedor comparte el kernel con el host, así que chrony corrige el reloj **de todo el servidor**.
+- `makestep 1.0 3`: si al arrancar el desfase es mayor que 1 s, lo corrige de un salto; después, de forma gradual.
+- `local stratum 10`: si la demo se queda sin internet, el servidor sigue sirviendo su reloj y los clientes quedan sincronizados entre sí.
+- `ALLOW_SUBNET` admite varias subredes separadas por coma; el *entrypoint* genera una línea `allow` por cada una. Durante las pruebas en casa se agregó `192.168.1.0/24`.
+
+Clientes (detalle en el README del servicio):
+```bash
+# Linux con chrony
+echo 'server 172.20.10.14 iburst prefer' | sudo tee /etc/chrony/sources.d/ecopetrol.sources
+sudo systemctl restart chrony && chronyc sources        # la línea de 172.20.10.14 empieza con ^*
+```
+```powershell
+# Windows (PowerShell como administrador)
+w32tm /config /manualpeerlist:172.20.10.14 /syncfromflags:manual /reliable:no /update
+w32tm /resync; w32tm /query /source                     # 172.20.10.14
+```
+
 ### Verificación (comando y salida esperada)
+```bash
+bash codigo/ntp/verify.sh server        # 6/6 [OK]: contenedor, Leap status Normal, fuente ^*, allow, 123/udp, NTP del host inactivo
+docker exec <ntp> chronyc tracking      # Stratum 3, Leap status Normal, "System time" en milisegundos
+docker exec <ntp> chronyc clients       # lista los equipos que consultaron la hora
+```
+Resultado en el servidor (2026-11-18): estrato 3, `Leap status: Normal`, desfase de **1,6 ms**, 5 fuentes válidas. Desde Windows, `w32tm /stripchart /computer:172.20.10.14` responde.
+
 ### Capturas
+![](capturas/ntp/01_build-local.png)
+![](capturas/ntp/02_chronyc-sources-servidor.png)
+![](capturas/ntp/05_dokploy-verify-server.png)
+
+_Pendiente: `ntp/03_cliente-linux` (`chronyc sources` con `^*` en el cliente Linux) y `ntp/04_windows-w32tm-source`._
+
 ### Problemas encontrados
+| Síntoma | Causa | Solución |
+|---|---|---|
+| En los logs de chrony: `System clock was stepped by 60954.902717 seconds` (casi 17 h) | La VM se había congelado y VirtualBox la dejó en estado *guardado* al apagar Windows; al reanudarla, su reloj seguía en la hora en que se detuvo | `makestep 1.0 3` corrigió el reloj de un salto al arrancar chrony. Sin un servidor NTP en la red, todos los registros de esas horas habrían quedado con la fecha equivocada |
+| En cada arranque de la VM, chrony corregía unos 6 s (`stepped by 5.937311 seconds`, `6.492441 seconds`) | La VM toma la hora inicial del reloj de Windows, que estaba unos 4-6 s desfasado (`w32tm /stripchart` contra el servidor mostraba `+04.15s`) | Lo corrige `makestep`. Configurar Windows como cliente del servidor (`w32tm`, arriba) también arregla el reloj del anfitrión |
+| El contenedor de prueba y el de Dokploy no pueden estar a la vez | Los dos publican 123/UDP: el segundo falla con `address already in use` | Apagar el de prueba (`docker compose down` en `~/pruebas/ntp`) antes de desplegar en Dokploy |
+| (Previsto en el diseño) `adjtimex(0x8001) failed: Operation not permitted` | Falta `SYS_TIME`, o la app se crea como *Stack*, que ignora `cap_add` | `cap_add: SYS_TIME` y app tipo **Docker Compose** |
 
 ## 5. Base de datos (B)
 
 ### Objetivo
-_Pendiente (B)._
+Guardar la información del portal (sedes, noticias y la guía de servicios TI) en una base **PostgreSQL 16** administrada por Dokploy, para que la web no tenga datos escritos a mano en HTML. La base solo es accesible desde la red interna de Docker: no se publica ningún puerto.
+
 ### Instalación (comandos)
+En Dokploy: proyecto `Ecopetrol-TI` → Create Service → **Database → PostgreSQL**:
+
+| Campo | Valor |
+|---|---|
+| Name | `ecopetrol-db` (servicio `ecopetrolti-ecopetroldb-5fzqvb`) |
+| Database Name / User | `ecopetrol` / `ecopetrol_app` |
+| Contraseña | generada, fuerte; solo en Dokploy |
+| Imagen | `postgres:16` (16.16) |
+| External Port | **desactivado** |
+
+Deploy, y copiar la **Internal Connection URL** (`postgresql://ecopetrol_app:<clave>@ecopetrolti-ecopetroldb-5fzqvb:5432/ecopetrol`) a la variable `DATABASE_URL` de la web (§6).
+
+El esquema y los datos no se cargan a mano: la API ejecuta `codigo/web/api/db/schema.sql` y `seed.sql` al arrancar. Son idempotentes (`CREATE TABLE IF NOT EXISTS`, `ON CONFLICT DO NOTHING`), así que redesplegar no duplica filas.
+
+| Tabla | Campos |
+|---|---|
+| `sedes` | `id`, `nombre` (único), `ciudad`, `departamento`, `tipo`, `descripcion` |
+| `noticias` | `id`, `titulo` (único), `resumen`, `fecha`, `fuente_url` |
+| `servicios_ti` | `id`, `nombre` (único), `protocolo`, `puerto`, `como_conectar` |
+
+Los datos viven en el volumen `ecopetrolti-ecopetroldb-5fzqvb-data`; los contenedores de la web no tienen estado. Dokploy permite programar backups de la base (pestaña *Backups*).
+
 ### Verificación (comando y salida esperada)
+```bash
+c=$(sudo docker ps -qf name=ecopetrolti-ecopetroldb)
+sudo docker exec $c psql -U ecopetrol_app -d ecopetrol -c '\dt'      # noticias, sedes, servicios_ti
+sudo docker exec $c psql -U ecopetrol_app -d ecopetrol \
+  -c 'select (select count(*) from sedes) sedes, (select count(*) from noticias) noticias, (select count(*) from servicios_ti) servicios_ti;'
+# sedes 5 | noticias 5 | servicios_ti 6
+sudo docker service inspect ecopetrolti-ecopetroldb-5fzqvb --format '{{json .Endpoint.Ports}}'   # null: sin puertos publicados
+curl -s https://www.ecopetrol-ti.duckdns.org/api/health                                          # {"status":"ok","db":"ok"}
+```
+
 ### Capturas
+![](capturas/web/05_bd-dokploy.png)
+![](capturas/web/02_pagina-sedes-desde-bd.png)
+
 ### Problemas encontrados
+| Síntoma | Causa | Solución |
+|---|---|---|
+| `docker service ps` muestra dos tareas de la base en `Failed` con `No such container: ecopetrolti-ecopetroldb-5fzqvb.1...` | La base corre como servicio de Swarm; cuando la VM se congelaba (Hyper-V, §1), Swarm perdía el contenedor y creaba una tarea nueva | Swarm la recreó sola y **no se perdieron datos**, porque están en el volumen `...-data`, no en el contenedor. El arreglo de fondo fue quitar Hyper-V del anfitrión (§1) |
+| Con la base caída, `/api/health` se quedaba colgado en lugar de avisar (encontrado en las pruebas) | El *pool* de `pg` de la API no tenía tiempo límite de conexión | `connectionTimeoutMillis: 3000` y `query_timeout: 5000`: ahora responde **503** con `"db":"error"` en 3 s |
+| El host de la base no es `ecopetrol-db` sino `ecopetrolti-ecopetroldb-5fzqvb` | Dokploy agrega el proyecto y un sufijo aleatorio al nombre del servicio | Usar siempre la **Internal Connection URL** que muestra Dokploy, no armarla a mano |
 
 ## 6. Web (B)
 
 ### Objetivo
-_Pendiente (B)._
+Portal HTTPS de la sede Bogotá en `https://www.ecopetrol-ti.duckdns.org`: información corporativa, sedes y noticias leídas de la base de datos (§5), y un "Portal TI" con la forma de conectarse a cada servicio de la red. Código y detalle en `codigo/web/README.md`.
+
 ### Instalación (comandos)
+Dos contenedores en un Compose de Dokploy, sin puertos publicados (todo entra por Traefik):
+
+```
+Navegador ──HTTPS──> Traefik (Dokploy) ──> ecopetrol-web (Nginx 1.27 :80)
+                                             ├── /       → sitio estático (5 páginas)
+                                             └── /api/*  → ecopetrol-api (Node 20 :3000) ──> PostgreSQL (§5)
+```
+
+En Dokploy: Create Service → **Compose** `web`, tipo Docker Compose, branch `main`, Compose Path `./codigo/web/docker-compose.yml`.
+- *Environment*: `DATABASE_URL=<Internal Connection URL de §5>`, `SERVER_IP=172.20.10.14`, `DOMINIO=ecopetrol-ti.duckdns.org`.
+- *Domains*: host `www.ecopetrol-ti.duckdns.org`, path `/`, service **`ecopetrol-web`**, puerto **80**, HTTPS activado, Certificate Provider **None** (Traefik usa el certificado de la CA propia, §3).
+- Deploy. En los logs de la API: `[db] esquema y semilla listos: 5 sedes, 5 noticias, 6 servicios TI`.
+
+**Autodeploy.** Como el servidor tiene IP privada, GitHub no puede llamar al webhook de Dokploy. El servidor revisa GitHub cada minuto (`git ls-remote`) con un timer de systemd y, si `main` cambió, llama él mismo al webhook con el formato de GitHub (`codigo/web/autodeploy/`, instalación en el README de la web §6):
+```bash
+sudo systemctl enable --now autodeploy-sondeo.timer
+journalctl -u autodeploy-sondeo        # Cambio en main: 406053e -> 3ee778b / Dokploy: Compose deployed successfully
+```
+La URL del webhook es un secreto: queda en `/etc/ecopetrol/autodeploy.env` (solo root), no en el repositorio.
+
 ### Verificación (comando y salida esperada)
+```bash
+bash codigo/web/verify.sh server                          # 7/7 [OK]: contenedores, nginx -t, health, Nginx→API, red dokploy-network, sin puertos publicados
+CA_CERT=~/certs/ca.crt bash codigo/web/verify.sh client   # 4/4 [OK]: HTTPS 200 sin -k, db ok, 5 sedes, cabeceras de seguridad
+curl -s https://www.ecopetrol-ti.duckdns.org/api/health   # {"status":"ok","db":"ok"}
+```
+Prueba de autodeploy (2026-11-18): el push del commit `3ee778b` se desplegó solo en menos de 1 minuto (despliegue de 4 s en Dokploy).
+
 ### Capturas
+![](capturas/web/01_sitio-https-candado.png)
+![](capturas/web/02_pagina-sedes-desde-bd.png)
+![](capturas/web/03_api-health.png)
+![](capturas/web/04_dokploy-dominio.png)
+![](capturas/web/06_autodeploy.png)
+![](capturas/web/06b_autodeploy-sondeo.png)
+
 ### Problemas encontrados
+| Síntoma | Causa | Solución |
+|---|---|---|
+| `/api/*` devolvía **504** después de redesplegar o reiniciar la API (encontrado en las pruebas) | Nginx resolvía el nombre `ecopetrol-api` una sola vez al arrancar, y la API volvía con otra IP | `resolver 127.0.0.11 valid=10s` y `proxy_pass` con variable, para que Nginx vuelva a resolver el nombre |
+| El autodeploy con el webhook de GitHub no se puede usar | GitHub tendría que conectarse a `172.20.10.14`, una IP privada detrás del hotspot | Sondeo desde el servidor (`autodeploy-sondeo.timer`): solo hace conexiones de salida y no hay que abrir nada a internet |
+| El webhook de Dokploy respondía `301 {"message":"Branch Not Match"}` | Dokploy lee la rama del campo `ref` del cuerpo y la cabecera `X-GitHub-Event`; una llamada simple no los trae | El script envía `X-GitHub-Event: push` y un cuerpo con el formato de GitHub (`ref`, `after`, mensaje y archivos del commit) |
+| `verify.sh client` fallaba en el servidor con `curl failed to verify the legitimacy of the server` | La VM no tenía la CA del laboratorio en su almacén de certificados | `CA_CERT=~/certs/ca.crt`, o instalar la CA en el sistema (`update-ca-certificates`) |
 
 ## 7. NIS (C)
 
