@@ -1,0 +1,98 @@
+/* Ecopetrol TI — hoja de estilos propia (sin frameworks ni recursos externos) */
+:root {
+  --azul: #0f3d56;
+  --azul-2: #155a7d;
+  --ambar: #f2a541;
+  --fondo: #f5f7f9;
+  --tarjeta: #ffffff;
+  --texto: #1d2731;
+  --suave: #5b6b78;
+  --borde: #dde4ea;
+  --ok: #1f8a4c;
+  --error: #b3261e;
+  --radio: 10px;
+  --sombra: 0 1px 3px rgba(15, 61, 86, .08), 0 4px 16px rgba(15, 61, 86, .06);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--fondo); color: var(--texto); line-height: 1.55; }
+a { color: var(--azul-2); }
+img { max-width: 100%; }
+
+.contenedor { width: min(1100px, 100% - 32px); margin-inline: auto; }
+
+/* Encabezado */
+.encabezado { background: var(--azul); color: #fff; position: sticky; top: 0; z-index: 10; }
+.encabezado .contenedor { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; flex-wrap: wrap; }
+.logo { color: #fff; text-decoration: none; font-weight: 800; font-size: 1.25rem; letter-spacing: .3px; display: flex; align-items: center; gap: 10px; }
+.logo .marca { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; background: var(--ambar); color: var(--azul); font-size: 1rem; }
+.logo small { font-weight: 500; opacity: .75; font-size: .8rem; }
+.menu { display: flex; gap: 4px; flex-wrap: wrap; padding: 6px 0; }
+.menu a { color: #dbe8f0; text-decoration: none; padding: 8px 12px; border-radius: 6px; font-size: .95rem; }
+.menu a:hover { background: rgba(255,255,255,.1); color: #fff; }
+.menu a[aria-current="page"] { background: rgba(242,165,65,.18); color: var(--ambar); font-weight: 600; }
+
+/* Portada */
+.portada { background: linear-gradient(135deg, var(--azul) 0%, var(--azul-2) 100%); color: #fff; padding: 64px 0 56px; }
+.portada h1 { font-size: clamp(1.8rem, 4vw, 2.8rem); line-height: 1.15; margin: 0 0 12px; max-width: 18ch; }
+.portada p { font-size: 1.1rem; max-width: 60ch; opacity: .92; margin: 0 0 24px; }
+.boton { display: inline-block; background: var(--ambar); color: var(--azul); font-weight: 700; padding: 11px 20px; border-radius: 8px; text-decoration: none; }
+.boton.secundario { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.5); margin-left: 8px; }
+
+/* Secciones */
+main { padding: 40px 0 56px; }
+.titulo-pagina { background: #fff; border-bottom: 1px solid var(--borde); padding: 32px 0 24px; }
+.titulo-pagina h1 { margin: 0 0 6px; color: var(--azul); font-size: clamp(1.5rem, 3vw, 2rem); }
+.titulo-pagina p { margin: 0; color: var(--suave); max-width: 70ch; }
+h2 { color: var(--azul); margin-top: 0; }
+
+.cifras { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: -36px 0 40px; }
+.cifra { background: var(--tarjeta); border-radius: var(--radio); box-shadow: var(--sombra); padding: 20px; border-top: 4px solid var(--ambar); }
+.cifra strong { display: block; font-size: 1.6rem; color: var(--azul); }
+.cifra span { color: var(--suave); font-size: .92rem; }
+
+.rejilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
+.tarjeta { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: var(--radio); padding: 20px; box-shadow: var(--sombra); }
+.tarjeta h3 { margin: 0 0 6px; color: var(--azul); font-size: 1.1rem; }
+.tarjeta p { margin: 0 0 8px; }
+.meta { color: var(--suave); font-size: .9rem; }
+.etiqueta { display: inline-block; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 3px 8px; border-radius: 999px; background: #e7f0f6; color: var(--azul-2); margin-bottom: 8px; }
+.etiqueta.refineria { background: #fdf0dc; color: #8a5300; }
+.etiqueta.instituto { background: #e6f4ea; color: #1f6b3b; }
+.etiqueta.filial { background: #efe9f7; color: #5a3d8a; }
+
+.noticia { display: grid; gap: 4px; }
+.noticia time { color: var(--suave); font-size: .85rem; font-weight: 600; }
+.lista-noticias { display: grid; gap: 16px; }
+
+.dos-columnas { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; align-items: start; }
+
+/* Portal TI */
+.servicio { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; }
+.servicio .icono { grid-row: span 3; width: 44px; height: 44px; border-radius: 10px; background: #e7f0f6; display: grid; place-items: center; font-size: 1.3rem; }
+.servicio code, .comando { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: .88rem; }
+.servicio .como { background: #f1f5f8; border-radius: 6px; padding: 8px 10px; font-size: .92rem; word-break: break-word; }
+.aviso { background: #fff8eb; border: 1px solid #f6d7a3; border-radius: var(--radio); padding: 14px 16px; margin-bottom: 24px; }
+
+/* Estado del sistema */
+.estado { display: inline-flex; align-items: center; gap: 8px; font-size: .9rem; color: var(--suave); }
+.punto { width: 10px; height: 10px; border-radius: 50%; background: #9aa7b1; }
+.punto.ok { background: var(--ok); }
+.punto.error { background: var(--error); }
+
+.cargando, .vacio { color: var(--suave); font-style: italic; }
+.error-carga { color: var(--error); }
+
+/* Pie */
+.pie { background: #0b2c3e; color: #b9c9d4; padding: 28px 0; font-size: .9rem; }
+.pie .contenedor { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.pie a { color: #dbe8f0; }
+.pie strong { color: #fff; }
+
+@media (max-width: 640px) {
+  .encabezado { position: static; }
+  .boton.secundario { margin: 10px 0 0; }
+  .cifras { margin-top: -24px; }
+}

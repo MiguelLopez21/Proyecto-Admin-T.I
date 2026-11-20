@@ -1,0 +1,41 @@
+%% Arquitectura de servicios de TI - Ecopetrol (BORRADOR v0.1, Propuesta 3)
+graph LR
+  subgraph RED["Red local Ecopetrol (bridged) - 172.20.10.0/28"]
+    CW["Clientes Windows/Mac<br/>(oficina Bogotá)"]
+    CL["Clientes Linux<br/>(laboratorio Icpet)"]
+    NAV["Navegador<br/>(público / inversionistas)"]
+  end
+
+  subgraph VM["VM Ubuntu Server 24.04 - 172.20.10.14"]
+    subgraph DK["Dokploy (Docker)"]
+      TR["Traefik<br/>80/443 TCP + TLS"]
+      PANEL["Panel Admin = Dokploy<br/>3000 / panel.ecopetrol-ti.duckdns.org"]
+      WEB["Web Nginx<br/>www.ecopetrol-ti.duckdns.org"]
+      API["API Node<br/>/api"]
+      DB[("PostgreSQL 16<br/>5432 interno")]
+      NTP["NTP chrony<br/>123/UDP"]
+      CUPS["CUPS + cups-pdf<br/>631/TCP"]
+      SMB["Samba<br/>445 + 139/TCP<br/>usuarios smbpasswd"]
+    end
+    subgraph HOST["Servicios del host (scripts en codigo/)"]
+      SSH["OpenSSH<br/>22/TCP"]
+      NFS["NFS v4<br/>2049/TCP<br/>/srv/nfs/ecopetrol, /home/nis"]
+      NIS["NIS ypserv<br/>111 + RPC<br/>dominio ecopetrol.local"]
+    end
+  end
+
+  NAV -->|HTTPS| TR
+  TR --> WEB
+  WEB -->|/api proxy| API
+  TR --> PANEL
+  API --> DB
+  CW -->|SMB| SMB
+  CW -->|IPP| CUPS
+  CW -->|NTP| NTP
+  CL -->|NTP| NTP
+  CL -->|mount NFS| NFS
+  CL -->|login| NIS
+  NIS -. usuarios/grupos .-> NFS
+  CL -->|IPP| CUPS
+  ADM["Administrador TI"] -->|SSH| SSH
+  NTP -->|upstream| POOL(["pool.ntp.org"])

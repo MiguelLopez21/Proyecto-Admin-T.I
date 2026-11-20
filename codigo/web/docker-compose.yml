@@ -1,0 +1,27 @@
+# Producción (Dokploy, tipo "Docker Compose"). La web NO publica puertos: entra por Traefik.
+services:
+  ecopetrol-web:
+    build: ./nginx
+    restart: unless-stopped
+    depends_on:
+      ecopetrol-api:
+        condition: service_healthy
+    networks:
+      - dokploy-network
+      - default
+
+  ecopetrol-api:
+    build: ./api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?define DATABASE_URL en .env o en Dokploy}
+      PORT: 3000
+      SERVER_IP: ${SERVER_IP:-172.20.10.14}
+      DOMINIO: ${DOMINIO:-ecopetrol-ti.duckdns.org}
+    networks:
+      - dokploy-network
+      - default
+
+networks:
+  dokploy-network:
+    external: true

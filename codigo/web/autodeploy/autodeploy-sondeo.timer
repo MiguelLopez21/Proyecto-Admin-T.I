@@ -1,0 +1,10 @@
+[Unit]
+Description=Revisar GitHub cada minuto para el autodeploy de Dokploy
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
