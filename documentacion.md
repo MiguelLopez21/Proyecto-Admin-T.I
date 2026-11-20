@@ -539,14 +539,28 @@ bash codigo/cups/verify.sh server                  # 4/4 [OK]: contenedor, sched
 bash codigo/cups/verify.sh client 172.20.10.14     # request id is Ecopetrol-Bogota-PDF-N
 docker exec <cups> ls -l /var/spool/cups-pdf/ANONYMOUS    # aparece el PDF nuevo
 ```
-
-_Pendiente (D): resultado en laboratorio (fecha, salida de `verify.sh server` y `client`, PDF generado y prueba desde Windows)._
+Resultado en laboratorio (2026-11-20, VM Multipass `172.28.193.238`): `verify.sh server` 4/4 `[OK]` (contenedor corriendo, `scheduler is running`, cola `Ecopetrol-Bogota-PDF` activa en estado idle/enabled y puerto 631 escuchando). `verify.sh client` 2/2 `[OK]`: lista la cola y envía un trabajo (`request id is Ecopetrol-Bogota-PDF-2`). El trabajo genera un PDF de 31 408 bytes en `/var/spool/cups-pdf/ANONYMOUS/`, propiedad de `nobody:nogroup` y legible por todos, porque los usuarios remotos no tienen cuenta local. `lpstat -p` confirma desde la VM y desde el contenedor que la cola está idle y habilitada.
 
 ### Capturas
-_Pendiente (D): enlazar `capturas/cups/01_web-admin.png`, `02_cola-compartida.png`, `03_windows-agregar-impresora.png`, `04_pagina-prueba.png`, `05_lpstat-cola.png` y `06_pdf-generado.png` cuando estén subidas._
+
+![](capturas/cups/01_web-admin.png)
+
+![](capturas/cups/02_cola-compartida.png)
+
+![](capturas/cups/03_windows-agregar-impresora.png)
+
+![](capturas/cups/04_pagina-prueba.png)
+
+![](capturas/cups/05_lpstat-cola.png)
+
+![](capturas/cups/06_pdf-generado.png)
 
 ### Problemas encontrados
-_Pendiente (D): completar con los problemas reales de las pruebas (mínimo 2, con síntoma, causa y solución)._
+
+| Síntoma | Causa | Solución |
+|---|---|---|
+| `lpstat -p` mostraba la cola "enabled since ... 16:05:03" desde la VM y "21:05:03" dentro del contenedor; los logs de CUPS salían con `+0000` | El contenedor usa UTC y la VM usa hora de Colombia (UTC-5): es la misma hora con 5 horas de diferencia | No afecta al servicio. Al comparar capturas y logs se interpreta la hora del contenedor como UTC |
+| _[por completar]_ | | |
 
 ## 11. Integración y pruebas cruzadas (A)
 
