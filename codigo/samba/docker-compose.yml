@@ -8,8 +8,8 @@ services:
     environment:
       SMB_GROUP: ${SMB_GROUP:-administrativa}
       SMB_GID: ${SMB_GID:-3003}
-      SMB_USERS: ${SMB_USERS:?define SMB_USERS en .env o en Dokploy}
-      SMB_PASSWORD: ${SMB_PASSWORD:?define SMB_PASSWORD en .env o en Dokploy}
+      SMB_USERS: ${SMB_USERS}
+      SMB_PASSWORD: ${SMB_PASSWORD}
     volumes:
       - samba_data:/srv/samba
       - samba_state:/var/lib/samba

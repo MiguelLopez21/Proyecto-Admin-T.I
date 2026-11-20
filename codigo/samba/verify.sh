@@ -9,7 +9,7 @@ MODO="${1:-}"
 FALLOS=0
 
 ok()   { echo "[OK]    $1"; }
-fallo(){ echo "[FALLO] $1"; FALLOS=$((FALLOS+1)); }
+fallo(){ echo "[FALLA] $1"; FALLOS=$((FALLOS+1)); }
 
 contenedor() {
   docker ps --filter "label=com.docker.compose.service=samba" --format '{{.Names}}' | head -n1
