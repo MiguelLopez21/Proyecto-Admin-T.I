@@ -41,7 +41,14 @@ Reglas: capturas enlazadas con ruta relativa `![](capturas/<servicio>/NN_nombre.
 
 ### Empresa, objetivo y equipo
 
-_Pendiente (D): empresa (Ecopetrol), objetivo del proyecto y equipo. La descripción de la empresa y la justificación de cada servicio están en `analisis.md` §1 y §2._
+Este proyecto implementa la infraestructura de TI de la sede Bogotá de Ecopetrol: un único servidor que ofrece web con HTTPS, hora centralizada (NTP), base de datos, archivos en red (NIS, NFS y Samba) y un servidor de impresión (CUPS), desplegados con Dokploy cuando es posible. El objetivo es dejar los servicios funcionando, documentados y verificables, de modo que cualquier persona pueda reproducirlos desde este repositorio. La descripción de la empresa y la justificación de cada servicio están en `analisis.md` §1 y §2.
+
+| Rol | Integrante | Responsabilidad |
+|---|---|---|
+| A | _nombre_ | VM, red, Dokploy, DNS y HTTPS, integración |
+| B | _nombre_ | NTP, base de datos y web |
+| C | _nombre_ | NIS y NFS |
+| D | Miguel López | Samba, CUPS y documentación |
 
 ### Entorno
 
@@ -116,7 +123,8 @@ Las contraseñas no se guardan en el repositorio: van en las variables de entorn
 | Samba | serie 4.19 | Imagen `alpine:3.20` (versión exacta al desplegar: `smbd --version`) |
 | CUPS | 2.4 | Imagen `debian:12-slim` (versión exacta al desplegar: `cupsd -v`) |
 | NIS / NFS | _pendiente (C)_ | Paquetes de Ubuntu 24.04 |
-
+| Samba | 4.19.9 | Imagen `alpine:3.20` |
+| CUPS | 2.4.2 (paquete `2.4.2-3+deb12u9`) | Imagen `debian:12-slim` |
 ## 1. VM y red (A)
 
 ### Objetivo
@@ -539,7 +547,7 @@ bash codigo/cups/verify.sh server                  # 4/4 [OK]: contenedor, sched
 bash codigo/cups/verify.sh client 172.20.10.14     # request id is Ecopetrol-Bogota-PDF-N
 docker exec <cups> ls -l /var/spool/cups-pdf/ANONYMOUS    # aparece el PDF nuevo
 ```
-Resultado en laboratorio (2026-11-20, VM Multipass `172.28.193.238`): `verify.sh server` 4/4 `[OK]` (contenedor corriendo, `scheduler is running`, cola `Ecopetrol-Bogota-PDF` activa en estado idle/enabled y puerto 631 escuchando). `verify.sh client` 2/2 `[OK]`: lista la cola y envía un trabajo (`request id is Ecopetrol-Bogota-PDF-2`). El trabajo genera un PDF de 31 408 bytes en `/var/spool/cups-pdf/ANONYMOUS/`, propiedad de `nobody:nogroup` y legible por todos, porque los usuarios remotos no tienen cuenta local. `lpstat -p` confirma desde la VM y desde el contenedor que la cola está idle y habilitada.
+Resultado en laboratorio (2026-11-20, VM Multipass `172.28.193.238`): `verify.sh server` 4/4 `[OK]` (contenedor corriendo, `scheduler is running`, cola `Ecopetrol-Bogota-PDF` activa en estado idle/enabled y puerto 631 escuchando). `verify.sh client` 2/2 `[OK]`: lista la cola y envía un trabajo (`request id is Ecopetrol-Bogota-PDF-2`). En `/var/spool/cups-pdf/ANONYMOUS/` quedaron dos PDF, ambos propiedad de `nobody:nogroup` y legibles por todos porque los usuarios remotos no tienen cuenta local: el de la página de prueba de Windows 11 (31 408 bytes) y el del trabajo enviado por `verify.sh client` (5 174 bytes). `lpstat -p` confirma, desde la VM y desde el contenedor, que la cola está idle y habilitada.
 
 ### Capturas
 
@@ -560,7 +568,7 @@ Resultado en laboratorio (2026-11-20, VM Multipass `172.28.193.238`): `verify.sh
 | Síntoma | Causa | Solución |
 |---|---|---|
 | `lpstat -p` mostraba la cola "enabled since ... 16:05:03" desde la VM y "21:05:03" dentro del contenedor; los logs de CUPS salían con `+0000` | El contenedor usa UTC y la VM usa hora de Colombia (UTC-5): es la misma hora con 5 horas de diferencia | No afecta al servicio. Al comparar capturas y logs se interpreta la hora del contenedor como UTC |
-| _[por completar]_ | | |
+| `docker compose exec cups ...` respondía `service "cups" is not running` aunque el contenedor estaba corriendo | El comando se ejecutó desde `codigo/samba`: `docker compose` solo conoce los servicios del `docker-compose.yml` de la carpeta actual | Ejecutarlo dentro de `codigo/cups`, o usar `docker exec cups-cups-1 ...` desde cualquier carpeta |
 
 ## 11. Integración y pruebas cruzadas (A)
 
@@ -573,8 +581,8 @@ Orden de despliegue y comandos en `codigo/servidor/CHECKLIST.md` §7. Estado al 
 | Web | Dokploy (Compose) + autodeploy por sondeo | 7/7 OK | `verify.sh client` 4/4 (HTTPS sin `-k`); navegador Windows con la CA | `web/01`–`web/06b` | |
 | NIS | _pendiente (C)_ | | | |
 | NFS | _pendiente (C)_ | | | |
-| Samba | _pendiente (D)_ | | | |
-| CUPS | _pendiente (D)_ | | | |
+| Samba | Dokploy (Compose), pendiente de despliegue por A; probado en laboratorio (Multipass) | 4/4 OK (laboratorio) | Windows: `net use Z:` y escritura OK; `lab.icpet1` y anónimo denegados; `verify.sh client` 4/4 OK | `samba/04`–`samba/08` |
+| CUPS | Dokploy (Compose), pendiente de despliegue por A; probado en laboratorio (Multipass) | 4/4 OK (laboratorio) | Windows: impresora agregada por IPP y página de prueba; `verify.sh client` 2/2 OK | `cups/03`–`cups/06` |
 
 ## 12. Extras
 
@@ -588,6 +596,38 @@ Orden de despliegue y comandos en `codigo/servidor/CHECKLIST.md` §7. Estado al 
 - **Certificado propio:** cada cliente tiene que importar `ca.crt` una vez; Firefox usa su propio almacén.
 - _Pendiente (C y D): UID/GID entre servicios._
 
+- **UID/GID entre servicios:** NIS y NFS comparten los mismos UID y GID, y Samba crea sus cuentas dentro de su contenedor con esos valores (`fin.bogota` 2021, `rrhh.bogota` 2022, `admin.ti` 2001; grupo `administrativa` 3003), para que los dueños de los archivos coincidan entre servicios. Las **contraseñas de Samba son aparte** (`smbpasswd`) y no son las de NIS, así que hay que mantenerlas en los dos sitios. CUPS solo usa `admin.ti` dentro de su contenedor. _(Pendiente C: coincidencia con NIS y NFS.)_
+- **Entorno de pruebas con Multipass:** al crear la VM de pruebas (`multipass launch 24.04 --name srv-samba-lab ...`) se repitió el comando con solo el nombre de la VM y Multipass respondió que no encontraba una imagen con ese nombre: interpretó el nombre como una imagen. La VM ya existía; bastaba `multipass list` y `multipass shell srv-samba-lab`.
+- **Cambios en la rama equivocada:** el arreglo de `verify.sh` se editó desde la web de GitHub en `main` y no en `servicio/samba-cups`, y en la VM el `git pull` decía `Already up to date` mientras el script seguía fallando. Se corrigió repitiendo el cambio en la rama correcta. Conviene confirmar la rama antes de editar.
+- **Push rechazado:** al subir una captura, `git push` dio `rejected ... (fetch first)` porque la rama remota tenía un commit que el equipo local no tenía. Solución: `git pull` (que abre el editor para el mensaje del merge) y luego `git push`. Conviene hacer `git pull` antes de cada push cuando se edita también desde GitHub.
+- **Conflicto en `verify.sh`:** al fusionar el PR #7, GitHub marcó un conflicto porque `verify.sh` cambió en `main` y en la rama a la vez. Se conservó la versión probada en el laboratorio.
+- **Git dentro de OneDrive:** al cambiar de rama apareció `Deletion of directory 'docs' failed. Should I try again? (y/n)`, porque OneDrive mantenía abierta la carpeta vacía. El cambio de rama ya se había hecho y se respondió `n`. Conviene tener el repositorio fuera de OneDrive.
 ## 14. Conclusiones
 
 _Pendiente: resultados, lecciones aprendidas, análisis costo-beneficio._
+
+### Resultados(D)
+
+Un único servidor aloja los servicios del proyecto. Todo lo desplegado se comprobó con scripts `verify.sh` reproducibles:
+
+| Servicio | Resultado |
+|---|---|
+| NTP | `verify.sh server` 6/6 OK; clientes Linux y Windows sincronizados con desfases de milisegundos |
+| Base de datos | PostgreSQL 16 sin puertos publicados; la API la lee (`/api/health` con `db: ok`) |
+| Web | HTTPS con CA propia; `verify.sh` servidor 7/7 y cliente 4/4; autodeploy por sondeo |
+| Samba | `verify.sh` servidor 4/4 y cliente 4/4; acceso anónimo y usuarios no autorizados denegados |
+| CUPS | `verify.sh` servidor 4/4 y cliente 2/2; cada trabajo genera un PDF |
+| NIS y NFS | _Pendiente (C)_ |
+
+### Lecciones aprendidas
+
+- **Los entornos de virtualización importan:** VirtualBox sobre un Windows con el hipervisor de Hyper-V activo corría en modo NEM, lento e inestable (§1). Revisar eso antes de montar el servidor habría ahorrado horas.
+- **Certificados en red privada:** Let's Encrypt no es posible sin acceso desde internet; una CA propia resolvió el HTTPS a costa de importar `ca.crt` en cada cliente (§3).
+- **Automatizar la verificación:** los `verify.sh` encontraron fallos reales, como un patrón de error que no cubría la respuesta real de Samba (§9), y dejan una prueba repetible para la demo.
+- **Control de versiones:** editar a la vez desde GitHub y desde el equipo local, y en ramas distintas, provocó rechazos de push y conflictos (§13). Conviene trabajar en una rama por tarea y hacer `git pull` antes de cada push.
+
+### Análisis costo-beneficio
+
+- **Costo:** todo el software es libre y no tiene licencias (Ubuntu, Docker, Dokploy, Traefik, PostgreSQL, Nginx, Node.js, chrony, Samba y CUPS). El costo real es el tiempo de configuración, un servidor modesto (2 vCPU, 6 GB de RAM, 40 GB de disco) y la red de la demo.
+- **Beneficio:** hora única y coherente para los registros de todos los servicios, archivos compartidos con autenticación por usuario, impresión centralizada y un portal web, todo reproducible desde el repositorio.
+- **Limitaciones:** un único servidor es un punto único de fallo, y cada cliente debe importar la CA propia para evitar las advertencias de HTTPS.
