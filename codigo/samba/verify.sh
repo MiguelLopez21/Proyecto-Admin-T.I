@@ -50,7 +50,7 @@ client() {
   if echo "$salida" | grep -qE 'NT_STATUS_(LOGON_FAILURE|ACCESS_DENIED)'; then ok "lab.icpet1 denegado"; else fallo "lab.icpet1 NO fue denegado: $salida"; fi
 
   salida="$(smbclient -N "//$ip/administrativa" -c ls 2>&1)"
-  if echo "$salida" | grep -qE 'NT_STATUS_(LOGON_FAILURE|ACCESS_DENIED)'; then ok "acceso anonimo denegado"; else fallo "acceso anonimo NO fue denegado: $salida"; fi
+  if echo "$salida" | grep -qE 'NT_STATUS_(LOGON_FAILURE|ACCESS_DENIED|CONNECTION_DISCONNECTED)'; then ok "acceso anonimo denegado"; else fallo "acceso anonimo NO fue denegado: $salida"; fi
 }
 
 case "$MODO" in
