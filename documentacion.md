@@ -446,7 +446,7 @@ _Pendiente (C)._
 ## 9. Samba (D)
 
 ### Objetivo
-Compartir la carpeta `administrativa` con clientes Windows, macOS y Linux, con autenticación por usuario, sin invitados y sin SMB1. Corre en un contenedor Alpine 3.20 (`codigo/samba/`), desplegado con Dokploy.
+Compartir la carpeta `administrativa` con clientes Windows, macOS y Linux, con autenticación por usuario, sin invitados y sin SMB1. Corre en un contenedor Alpine 3.20 (`codigo/samba/`), desplegado con Dokploy. Código y detalle en `codigo/samba/README.md`.
 
 ### Instalación (comandos)
 ```bash
@@ -455,27 +455,57 @@ cp .env.example .env            # editar SMB_PASSWORD
 docker compose up -d --build
 docker compose logs -f samba
 ```
-En Dokploy: servicio Compose, *Compose Path* `./codigo/samba/docker-compose.yml`, variables en la pestaña *Environment*.
+En Dokploy: servicio Compose, *Compose Path* `./codigo/samba/docker-compose.yml`, y en *Environment* las variables `SMB_GROUP`, `SMB_GID`, `SMB_USERS` y `SMB_PASSWORD`.
+
+Decisiones de configuración:
+- Sin invitados (`map to guest = never`) y sin SMB1 (`server min protocol = SMB2_10`). La firma SMB se negocia, como exige Windows 11 24H2.
+- Cuentas propias dentro del contenedor, sin shell, con los mismos UID y GID que NIS: `fin.bogota` 2021, `rrhh.bogota` 2022, `admin.ti` 2001 y grupo `administrativa` 3003. La contraseña de cada cuenta se asigna con `smbpasswd`.
+- Solo el puerto 445 (`disable netbios = yes`). Las impresoras las maneja CUPS (`load printers = no`).
+- Carpeta `/srv/samba/administrativa` con permisos `2770` y `force group = administrativa`, guardada en el volumen `samba_data`. Las cuentas se conservan en `samba_state`.
+
+Clientes:
+```powershell
+# Windows (PowerShell)
+net use * /delete
+net use Z: \\172.20.10.14\administrativa /user:ECOPETROL\fin.bogota *
+```
+```bash
+# Linux
+smbclient //172.20.10.14/administrativa -U fin.bogota
+```
+macOS: Finder → Cmd+K → `smb://172.20.10.14/administrativa`.
 
 ### Verificación (comando y salida esperada)
 ```bash
-bash codigo/samba/verify.sh server            # [OK] en las 4 comprobaciones, exit 0
-bash codigo/samba/verify.sh client SERVER_IP   # con SMB_PASSWORD exportada
+bash codigo/samba/verify.sh server                 # 4/4 [OK]: contenedor, testparm, 3 usuarios, 445/tcp
+bash codigo/samba/verify.sh client 172.20.10.14    # 4/4 [OK]; usa SMB_PASSWORD o la pide
+docker exec <samba> pdbedit -L                     # fin.bogota, rrhh.bogota y admin.ti
+smbclient //172.20.10.14/administrativa -U 'lab.icpet1%x' -c ls    # NT_STATUS_LOGON_FAILURE
 ```
-- `docker exec <samba> pdbedit -L` lista `fin.bogota`, `rrhh.bogota` y `admin.ti`.
-- `smbclient //SERVER_IP/administrativa -U lab.icpet1 -c ls` → `NT_STATUS_LOGON_FAILURE` o `ACCESS_DENIED`.
-- Windows: `net use Z: \\SERVER_IP\administrativa /user:ECOPETROL\fin.bogota *` y crear un archivo.
+Windows: `net use Z:` conecta con `fin.bogota` y se puede crear un archivo.
+
+Resultado en laboratorio (2026-11-20, VM Multipass `172.28.193.238`): `verify.sh server` 4/4 `[OK]` y `verify.sh client` 4/4 `[OK]`. `testparm -s` carga la configuración sin errores y `pdbedit -L` lista `fin.bogota` (2021), `rrhh.bogota` (2022) y `admin.ti` (2001). Desde Windows 11, `net use Z:` conecta con `fin.bogota` y un archivo creado en Z: aparece en el servidor con dueño `fin.bogota` y grupo `administrativa`. `lab.icpet1` y el acceso anónimo son rechazados.
 
 ### Capturas
-_Pendiente: `samba/01_build-local`, `02_testparm`, `03_pdbedit-usuarios`, `04_windows-explorador`, `05_net-use-Z`, `06_escribir-archivo`, `07_usuario-no-autorizado-denegado`, `08_mac-o-linux-smbclient`._
+![](capturas/samba/01_build-local.png)
+![](capturas/samba/02_testparm.png)
+![](capturas/samba/03_pdbedit-usuarios.png)
+![](capturas/samba/04_windows-explorador.png)
+![](capturas/samba/05_net-use-Z.png)
+![](capturas/samba/06_escribir-archivo.png)
+![](capturas/samba/07_usuario-no-autorizado-denegado.png)
+![](capturas/samba/08_mac-o-linux-smbclient.png)
 
 ### Problemas encontrados
-_Pendiente: completar con los problemas reales de las pruebas (mínimo 2). Candidatos a revisar: `bind failed on port 445`, error 1219 de Windows por credencial en caché, permisos al escribir._
+| Síntoma | Causa | Solución |
+|---|---|---|
+| `verify.sh client` marcaba `acceso anonimo NO fue denegado` con `tree connect failed: NT_STATUS_CONNECTION_DISCONNECTED` | Samba corta la conexión del anónimo en lugar de responder `ACCESS_DENIED`; el script solo aceptaba ese error y `LOGON_FAILURE` | Agregar `CONNECTION_DISCONNECTED` al patrón del script. El acceso anónimo sí estaba denegado: no lista nada |
+| `verify.sh client` fallaba con `NT_STATUS_LOGON_FAILURE` para `fin.bogota`, aunque desde Windows esa cuenta sí entraba | La clave se tecleó mal en el prompt oculto (`read -rs`), que no muestra lo que se escribe | Comparar la longitud de lo escrito (`echo ${#SMB_PASSWORD}`) con la de `.env`, probar con `smbclient -L` y volver a introducirla |
 
 ## 10. CUPS (D)
 
 ### Objetivo
-Publicar una impresora virtual PDF (`Ecopetrol-Bogota-PDF`) compartida por IPP, administrable solo por `lpadmin`, accesible desde la subred de la oficina. Corre en un contenedor Debian 12 (`codigo/cups/`), desplegado con Dokploy.
+Publicar una impresora virtual PDF (`Ecopetrol-Bogota-PDF`) compartida por IPP, administrable solo por el grupo `lpadmin` y accesible desde la subred de la oficina. Cada trabajo de impresión genera un PDF en un volumen, lo que demuestra la cola completa: envío, cola, procesamiento y salida. Corre en un contenedor Debian 12 (`codigo/cups/`), desplegado con Dokploy. Código y detalle en `codigo/cups/README.md`.
 
 ### Instalación (comandos)
 ```bash
@@ -484,22 +514,39 @@ cp .env.example .env            # editar CUPS_ADMIN_PASSWORD y ALLOW_SUBNET
 docker compose up -d --build
 docker compose logs -f cups
 ```
-En Dokploy: servicio Compose, *Compose Path* `./codigo/cups/docker-compose.yml`.
+En Dokploy: servicio Compose, *Compose Path* `./codigo/cups/docker-compose.yml`, y en *Environment* `CUPS_ADMIN_USER`, `CUPS_ADMIN_PASSWORD` y `ALLOW_SUBNET`.
+
+`ALLOW_SUBNET` es la subred de los clientes: `172.20.10.0/28` en la demo (hotspot) y la subred de la VM en el laboratorio (`172.28.192.0/20` con Multipass).
+
+Decisiones de configuración:
+- Acceso por subred explícita (`Allow from ${ALLOW_SUBNET}`) y no `@LOCAL`: dentro del contenedor, `@LOCAL` solo cubre la red interna de Docker, y los clientes recibirían `403`. El *entrypoint* sustituye la subred en `cupsd.conf` en cada arranque.
+- `ServerAlias *`: sin él, CUPS responde `400 Bad Request` cuando la petición llega con la IP o con otro nombre de host.
+- La cola se comparte con `printer-is-shared=true`. No se usa `cupsctl --remote-any` ni `--share-printers`, porque reescriben `cupsd.conf` y borran la restricción por subred.
+- La administración web (`/admin`) solo la hacen los usuarios de `lpadmin` (`admin.ti`) y desde la subred permitida.
+
+Clientes:
+```bash
+# Linux, sin crear cola local
+lp -h 172.20.10.14:631 -d Ecopetrol-Bogota-PDF /etc/hostname
+lpstat -h 172.20.10.14:631 -o
+```
+- Windows: Configuración → Impresoras y escáneres → Agregar → *Seleccionar una impresora compartida por nombre* → `http://172.20.10.14:631/printers/Ecopetrol-Bogota-PDF`, con el controlador *Microsoft PS Class Driver*, e imprimir una página de prueba.
+- Administración web: `https://172.20.10.14:631/admin` con `admin.ti` (el navegador avisa por el certificado autofirmado de CUPS; se acepta).
 
 ### Verificación (comando y salida esperada)
 ```bash
-bash codigo/cups/verify.sh server             # scheduler is running, cola idle/enabled, :631 abierto
-bash codigo/cups/verify.sh client SERVER_IP   # request id is Ecopetrol-Bogota-PDF-N
-docker exec <cups> ls -l /var/spool/cups-pdf/ANONYMOUS   # aparece el PDF nuevo
+bash codigo/cups/verify.sh server                  # 4/4 [OK]: contenedor, scheduler, cola idle/enabled, 631/tcp
+bash codigo/cups/verify.sh client 172.20.10.14     # request id is Ecopetrol-Bogota-PDF-N
+docker exec <cups> ls -l /var/spool/cups-pdf/ANONYMOUS    # aparece el PDF nuevo
 ```
-- Administración web: `https://SERVER_IP:631/admin` con `admin.ti` (certificado autofirmado, se acepta la advertencia).
-- Windows: agregar la impresora por `http://SERVER_IP:631/printers/Ecopetrol-Bogota-PDF` con *Microsoft PS Class Driver* e imprimir una página de prueba.
+
+_Pendiente (D): resultado en laboratorio (fecha, salida de `verify.sh server` y `client`, PDF generado y prueba desde Windows)._
 
 ### Capturas
-_Pendiente: `cups/01_web-admin`, `02_cola-compartida`, `03_windows-agregar-impresora`, `04_pagina-prueba`, `05_lpstat-cola`, `06_pdf-generado`._
+_Pendiente (D): enlazar `capturas/cups/01_web-admin.png`, `02_cola-compartida.png`, `03_windows-agregar-impresora.png`, `04_pagina-prueba.png`, `05_lpstat-cola.png` y `06_pdf-generado.png` cuando estén subidas._
 
 ### Problemas encontrados
-_Pendiente: completar con los problemas reales de las pruebas (mínimo 2). Candidatos a revisar: `400 Bad Request` sin `ServerAlias *`, `403` por usar `@LOCAL`, cola en *stopped*, driver en Windows._
+_Pendiente (D): completar con los problemas reales de las pruebas (mínimo 2, con síntoma, causa y solución)._
 
 ## 11. Integración y pruebas cruzadas (A)
 
