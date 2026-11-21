@@ -28,24 +28,13 @@ for h in /home/nis/*/; do
 done
 
 echo "== 4. /etc/exports (root_squash, nunca no_root_squash) =="
-for linea in \
-  "/srv/nfs/ecopetrol  ${SUBRED}(rw,sync,no_subtree_check,root_squash)" \
-  "/home/nis           ${SUBRED}(rw,sync,no_subtree_check,root_squash)"; do
-  grep -qF "$linea" /etc/exports 2>/dev/null || echo "$linea" >> /etc/exports
-done
+cat > /etc/exports <<FIN
+/srv/nfs/ecopetrol ${SUBRED}(rw,sync,no_subtree_check,root_squash)
+/home/nis ${SUBRED}(rw,sync,no_subtree_check,root_squash)
+FIN
 
 echo "== 5. Dominio para idmapd (nombres de usuario) =="
 if grep -qE '^[[:space:]]*Domain' /etc/idmapd.conf; then
   sed -i -E "s/^[[:space:]]*Domain.*/Domain = ${NFS_DOMAIN}/" /etc/idmapd.conf
 else
-  sed -i "/\[General\]/a Domain = ${NFS_DOMAIN}" /etc/idmapd.conf
-fi
-
-echo "== 6. Exportar y arrancar =="
-exportfs -ra
-systemctl enable --now nfs-server
-systemctl restart nfs-server
-
-echo "== 7. Comprobación =="
-exportfs -v
-ss -tlnp | grep ':2049' || true
+  sed -i "/\[General\]/a

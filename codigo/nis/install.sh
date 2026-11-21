@@ -38,7 +38,7 @@ tail -n +2 "$DIR/config/usuarios.csv" | tr -d '\r' | while IFS=, read -r usuario
   if ! getent passwd "$usuario" >/dev/null; then
     args=(-u "$uid" -g "$grupo" -m -d "/home/nis/$usuario" -s /bin/bash -c "$nombre")
     [[ -n "$extras" ]] && args+=(-G "$extras")
-    useradd "${args[@]}"
+    useradd "${args[@]}" "$usuario"
     # La contraseña solo se fija al crear la cuenta, para no pisar cambios posteriores
     echo "$usuario:$DEMO_PASSWORD" | chpasswd
   fi
