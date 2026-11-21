@@ -6,7 +6,7 @@ services:
       - "631:631"
     environment:
       CUPS_ADMIN_USER: ${CUPS_ADMIN_USER:-admin.ti}
-      CUPS_ADMIN_PASSWORD: ${CUPS_ADMIN_PASSWORD:?define CUPS_ADMIN_PASSWORD en .env o en Dokploy}
+      CUPS_ADMIN_PASSWORD: ${CUPS_ADMIN_PASSWORD}
       ALLOW_SUBNET: ${ALLOW_SUBNET:-192.168.1.0/24}
     volumes:
       - cups_config:/etc/cups
