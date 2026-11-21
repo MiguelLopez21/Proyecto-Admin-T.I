@@ -113,7 +113,9 @@ sudo systemctl stop ufw-revertir.timer
 sudo bash codigo/servidor/ufw.sh --estado
 ```
 
-- NIS y NFS corren en el anfitrión, así que **sí** pasan por UFW: hay que poner sus puertos en `PUERTOS_HOST` (NFSv4: `2049/tcp`; NIS: `111` más los puertos de `ypserv`/`ypbind`, que deben quedar fijos para poder abrirlos).
+- NIS y NFS corren en el anfitrión, así que **sí** pasan por UFW: hay que poner sus puertos en `PUERTOS_HOST`. Valor real: `PUERTOS_HOST="111 834 835 2049/tcp"` (rpcbind 111 y NIS `ypserv` 834 / `yppasswdd` 835 en TCP y UDP, fijados en `/etc/default/nis`; NFSv4 2049/tcp).
+- **`IFACE`**: por defecto el script toma la interfaz de la ruta por defecto. En la demo es `enp0s3` (la LAN), pero si la VM tiene una segunda tarjeta NAT con la ruta por defecto (modo casa, `red-modo.sh casa`), hay que pasar `IFACE=enp0s3` o la cadena `DOCKER-USER` filtraría la interfaz equivocada.
+- Activado el 2026-11-20 con `IFACE=enp0s3 PUERTOS_HOST="111 834 835 2049/tcp"`: `verify.sh` de NIS (9/9 y 12/12) y NFS (7/7 y 9/9) siguen en OK, HTTPS 200 y NTP responden desde Windows, y un puerto fuera de la lista (9999) da *timeout* desde `cli-icpet` (📸 `servidor/13_ufw-nis-nfs`, `servidor/13b_ufw-prueba-desde-cliente`).
 - En casa: `SUBREDES="172.20.10.0/28 192.168.1.0/24"`.
 - Probado el 2026-11-18: con solo la /28, desde `192.168.1.x` el panel (3000) y el HTTPS (443) dan timeout y el kernel registra `[DOCKER-USER BLOQUEADO]`. SSH sigue entrando, el contenedor NTP sigue sincronizando hacia afuera y las reglas sobreviven a un reinicio y a reiniciar Traefik.
 - Revertir: `sudo bash codigo/servidor/ufw.sh --quitar`.

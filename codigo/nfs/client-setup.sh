@@ -6,7 +6,7 @@ set -euo pipefail
 ENV_FILE="${1:-.env}"
 [[ $EUID -eq 0 ]] || { echo "Ejecuta con sudo."; exit 1; }
 [[ -f "$ENV_FILE" ]] || { echo "No existe $ENV_FILE (copia .env.example)."; exit 1; }
-set -a; source "$ENV_FILE"; set +a
+set -a; source <(tr -d '\r' < "$ENV_FILE"); set +a   # tolera un .env guardado con CRLF (Windows)
 : "${SERVER_IP:?falta SERVER_IP}"
 : "${NFS_DOMAIN:?falta NFS_DOMAIN}"
 
@@ -15,8 +15,8 @@ getent passwd lab.icpet1 >/dev/null || { echo "Falta NIS en este cliente. Ejecut
 
 echo "== 2. Instalar nfs-common =="
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y nfs-common
+apt-get -o DPkg::Lock::Timeout=600 update -y
+apt-get -o DPkg::Lock::Timeout=600 install -y nfs-common
 
 echo "== 3. Dominio para idmapd =="
 if grep -qE '^[[:space:]]*Domain' /etc/idmapd.conf; then
