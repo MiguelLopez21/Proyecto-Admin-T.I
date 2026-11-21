@@ -1,0 +1,6 @@
+usuario,uid,grupo,grupos_extra,nombre
+admin.ti,2001,ti,icpet;administrativa,Administrador TI
+lab.icpet1,2011,icpet,,Laboratorio ICPET 1
+lab.icpet2,2012,icpet,,Laboratorio ICPET 2
+fin.bogota,2021,administrativa,,Finanzas Bogota
+rrhh.bogota,2022,administrativa,,Recursos Humanos Bogota

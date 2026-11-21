@@ -428,20 +428,147 @@ Prueba de autodeploy (2026-11-18): el push del commit `3ee778b` se desplegó sol
 ## 7. NIS (C)
 
 ### Objetivo
-_Pendiente (C)._
+Autenticación centralizada para los equipos Linux de la oficina y de los laboratorios del Icpet. Las cuentas se crean una sola vez en `srv-ecopetrol` (servidor NIS maestro del dominio `ecopetrol.local`) y cualquier cliente las usa para iniciar sesión, con los mismos UID y GID que NFS (§8) y Samba (§9). Así, al dar de baja a un empleado se borra en un solo lugar, y los permisos de los archivos compartidos coinciden en todos los equipos. Código y detalle en `codigo/nis/README.md`.
+
 ### Instalación (comandos)
+NIS corre en el **host**, no en Docker, porque depende de `rpcbind` y de RPC. Paquetes de Ubuntu 24.04: `nis` 4.5 (`ypserv` 4.2, `ypbind-mt` 2.7.2, `libnss-nis` 3.1) y `rpcbind` 1.2.6.
+
+```bash
+# Servidor (srv-ecopetrol), desde la raíz del repositorio
+cp codigo/nis/.env.example codigo/nis/.env      # poner la contraseña de demo en DEMO_PASSWORD (no se sube)
+sudo bash codigo/nis/install.sh codigo/nis/.env
+```
+
+`install.sh` es idempotente (se ejecutó dos veces seguidas sin errores ni duplicados) y hace, en orden:
+1. Fija el dominio (`/etc/defaultdomain`) y precarga `debconf` para que `apt` no haga preguntas.
+2. Instala `nis` y `rpcbind`. Antes espera a que `unattended-upgrades` libere `dpkg` y `debconf` (ver *Problemas*).
+3. Crea los grupos y usuarios de `config/grupos.csv` y `config/usuarios.csv` (tabla de §0) con homes en `/home/nis/<usuario>`. Si una cuenta ya existe con otro UID o GID, se detiene en vez de dejar IDs inconsistentes.
+4. Escribe `/etc/default/nis` y `/etc/ypserv.securenets`, ajusta `/var/yp/Makefile`, arranca `rpcbind`, `ypserv` y `yppasswdd` y genera los mapas (`ypinit -m` la primera vez y `make -C /var/yp` después).
+
+Decisiones de configuración:
+- **Puertos fijos** (`YPSERVARGS="-p 834"`, `YPPASSWDDARGS="--port 835"`): RPC asigna puertos al azar; fijarlos permite abrirlos en el cortafuegos (`ufw.sh`, `PUERTOS_HOST="111 834 835 2049/tcp"`) y documentarlos en la tabla de §0.
+- **`securenets`**: solo `127.0.0.0/8` y la subred de la demo `172.20.10.0/255.255.255.240`. Se quita la línea `0.0.0.0 0.0.0.0`, que deja consultar los mapas a cualquiera.
+- **`MINUID=2000` y `MINGID=2000`** en `/var/yp/Makefile` (la guía proponía 1000): con 1000 se exportaría `sysadmin` (UID 1000, administrador del servidor), con su hash de contraseña, a toda la red, y chocaría con el usuario local UID 1000 de cada cliente (`cli-icpet` tiene uno).
+- **`NISCLIENT=false`** en el servidor: no se consulta a sí mismo; sus cuentas ya están en `/etc/passwd`.
+- Regla de operación: cada vez que se crea o cambia un usuario en el servidor hay que ejecutar `sudo make -C /var/yp`; si no, los clientes no ven el cambio.
+
+```bash
+# Cliente Linux (cli-icpet)
+sudo bash codigo/nis/client-setup.sh codigo/nis/.env
+```
+
+`client-setup.sh` instala `nis`, `rpcbind` y `openssh-server`; escribe `/etc/yp.conf` (`domain ecopetrol.local server 172.20.10.14`); agrega `nis` a `passwd`, `group`, `shadow` y `netgroup` en `/etc/nsswitch.conf` (con respaldo y sin duplicar); y arranca `ypbind`. Además aplica dos ajustes propios de Ubuntu 24.04:
+- **Drop-in de `systemd-logind`** con `IPAddressAllow=any`: la unidad trae `IPAddressDeny=any`, que bloquea las consultas NIS durante el login y lo deja colgado.
+- **`nscd` sin caché de grupos** (`enable-cache group no`): el paquete `nis` instala `nscd`, y su caché de grupos ocultaba los grupos secundarios (ver *Problemas*).
+
+Los homes de los usuarios NIS no se crean en el cliente: llegan montados por NFS (§8).
+
 ### Verificación (comando y salida esperada)
+```bash
+bash codigo/nis/verify.sh server                                  # 9/9 [OK]
+DEMO_PASSWORD='…' bash codigo/nis/verify.sh client 172.20.10.14   # 12/12 [OK] (con sshpass instalado)
+rpcinfo -p localhost | grep yp          # ypserv en 834 (tcp/udp, v1 y v2) y yppasswdd en 835
+ypwhich                                  # 172.20.10.14   (en el cliente)
+id admin.ti                              # uid=2001(admin.ti) gid=3001(ti) groups=3001(ti),3002(icpet),3003(administrativa)
+ssh lab.icpet1@localhost                 # pide la contraseña NIS; pwd → /home/nis/lab.icpet1
+```
+
+- `verify.sh server` comprueba: servicios activos, puertos 834 y 835, dominio, `securenets` cerrado, los 5 usuarios del CSV en el mapa `passwd` y que no se exporta ninguna cuenta con UID menor que 2000.
+- `verify.sh client` comprueba: `ypbind`, `ypwhich`, `nsswitch`, el drop-in de `logind`, UID, home y grupos, y hace la **prueba de autenticación real** de la rúbrica: login SSH de `lab.icpet1` con su contraseña NIS (`pwd` = `/home/nis/lab.icpet1`) y rechazo de una contraseña incorrecta (`Permission denied`, y `Failed password for lab.icpet1` en el journal de `sshd`).
+
+Resultado (2026-11-20, `srv-ecopetrol` + `cli-icpet`): servidor **9/9** y cliente **12/12**, también después de reiniciar las dos VM. Las pruebas se hicieron con las IP de la demo (`.14` y `.13` en `172.20.10.0/28`) sobre una red *host-only* de VirtualBox, porque ese día no había hotspot.
+
 ### Capturas
+![](capturas/nis/01_install-servidor.png)
+![](capturas/nis/02_rpcinfo-puertos-fijos.png)
+![](capturas/nis/03_ypcat-passwd.png)
+![](capturas/nis/04_cliente-ypwhich.png)
+![](capturas/nis/05_login-ssh-lab.icpet1.png)
+![](capturas/nis/06_contrasena-incorrecta-rechazada.png)
+
 ### Problemas encontrados
+| Síntoma | Causa | Solución |
+|---|---|---|
+| `install.sh` mostraba la ayuda de `useradd` y no creaba ningún usuario; antes ya fallaba al leer los grupos | La primera versión llamaba `useradd "${args[@]}"` sin el nombre del usuario, y buscaba `config/grupos.csv` cuando el archivo se llamaba `grupo.csv` | `useradd "${args[@]}" "$usuario"` y archivo renombrado. Se detectó al probar en la VM: el script nunca se había ejecutado completo |
+| Al correr `install.sh` por segunda vez se cortaba en el paso 3, sin mensaje | `[[ -n "$extras" ]] && usermod …` devuelve 1 cuando el usuario no tiene grupos extra; con `set -e` y `pipefail`, eso aborta el script | `if [[ -n "$extras" ]]; then usermod …; fi`. Ahora dos ejecuciones seguidas terminan con código 0 |
+| `E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process … (unattended-upgr)`, y en el cliente `debconf: config.dat is locked by another process` | Recién encendidas las VM con internet, `unattended-upgrades` estaba instalando actualizaciones | Los scripts esperan a que se liberen `dpkg` y `debconf` (`fuser`, hasta 10 min) y usan `apt-get -o DPkg::Lock::Timeout=600`. En la demo pasaría lo mismo justo después de encender |
+| En el cliente, `id admin.ti` mostraba solo `groups=3001(ti)`, aunque `getent group icpet` sí lo listaba como miembro | `nscd` (instalado como dependencia de `nis`) devolvía los grupos secundarios incompletos. Con `nscd` detenido, `id` mostraba `3001,3002,3003`; invalidar la caché (`nscd -i group`) no bastaba | `enable-cache group no` en `/etc/nscd.conf` (respaldo en `nscd.conf.orig`). Sin esto, `admin.ti` no podría entrar a la carpeta NFS del grupo `icpet` |
+| El primer login SSH de `lab.icpet1` respondía `Could not chdir to home directory /home/nis/lab.icpet1: No such file or directory` | La autenticación NIS ya funcionaba, pero los homes todavía no estaban montados por NFS | Configurar NFS en el cliente (§8). Después, `pwd` devuelve `/home/nis/lab.icpet1` |
+| (Diseño) Los hashes de las contraseñas viajan sin cifrar en los mapas NIS (`MERGE_PASSWD=true`) y cualquiera de la subred puede ver el mapa `passwd` | Limitación propia de NIS | Se acota con `securenets` (solo la /28) y el cortafuegos; ni los scripts ni las capturas muestran la columna del hash. En producción se usaría LDAP con Kerberos |
 
 ## 8. NFS (C)
 
 ### Objetivo
-_Pendiente (C)._
+Archivos compartidos para los equipos Linux con permisos por grupo. El servidor exporta dos recursos por **NFSv4**: `/srv/nfs/ecopetrol`, la carpeta de trabajo de los laboratorios del Icpet, a la que solo entra el grupo `icpet`; y `/home/nis`, los homes de los usuarios NIS, para que cada usuario encuentre sus archivos en cualquier equipo. Los permisos funcionan porque NIS (§7) da los mismos UID y GID en el servidor y en los clientes. Código y detalle en `codigo/nfs/README.md`.
+
 ### Instalación (comandos)
+NFS corre en el **host** porque usa el servidor `nfsd` del kernel. Paquetes de Ubuntu 24.04: `nfs-kernel-server` y `nfs-common` 2.6.4. Requiere NIS instalado antes: `install.sh` se detiene si no existe el grupo `icpet` (3002).
+
+```bash
+# Servidor (srv-ecopetrol)
+cp codigo/nfs/.env.example codigo/nfs/.env     # SERVER_IP=172.20.10.14, SUBRED=172.20.10.0/28, NFS_DOMAIN=ecopetrol.local
+sudo bash codigo/nfs/install.sh codigo/nfs/.env
+
+# Cliente (cli-icpet), después de configurar NIS
+sudo bash codigo/nfs/client-setup.sh codigo/nfs/.env
+```
+
+`/etc/exports` generado (sin duplicar líneas si se ejecuta otra vez):
+```
+/srv/nfs/ecopetrol  172.20.10.0/28(rw,sync,no_subtree_check,root_squash)
+/home/nis           172.20.10.0/28(rw,sync,no_subtree_check,root_squash)
+```
+
+`/etc/fstab` del cliente:
+```
+172.20.10.14:/srv/nfs/ecopetrol  /mnt/ecopetrol  nfs4  defaults,_netdev  0 0
+172.20.10.14:/home/nis           /home/nis       nfs4  defaults,_netdev  0 0
+```
+
+Decisiones de configuración:
+- **`root_squash` y no `no_root_squash`**, que es lo que trae la guía del enunciado. Con `no_root_squash`, el root de cualquier equipo de la red sería root sobre los archivos del servidor. Con `root_squash`, el root del cliente se convierte en `nobody` y no entra a la carpeta del Icpet ni a los homes.
+- **`/srv/nfs/ecopetrol` con `2770 root:icpet`**. El bit **setgid** hace que todo archivo nuevo herede el grupo `icpet`, así que los compañeros del laboratorio pueden editar lo que crea otro. Los demás no pueden ni listar la carpeta.
+- **Homes `700`**, de su dueño: otro usuario NIS no puede leer el home ajeno.
+- **Solo la /28 de la demo** en los exports, no una /24.
+- **`Domain = ecopetrol.local`** en `/etc/idmapd.conf`, igual en el servidor y en el cliente, para que NFSv4 traduzca bien los dueños de los archivos.
+- **`_netdev`** en el `fstab`: el cliente monta cuando la red está lista. Se comprobó reiniciando las dos VM: los montajes vuelven solos. Se monta en `/home/nis` y no sobre `/home`, para no ocultar los homes locales del cliente.
+
 ### Verificación (comando y salida esperada)
+```bash
+sudo bash codigo/nfs/verify.sh server                  # 7/7 [OK]
+sudo bash codigo/nfs/verify.sh client 172.20.10.14     # 9/9 [OK]
+sudo exportfs -v                                       # los 2 exports con root_squash, solo 172.20.10.0/28
+findmnt -t nfs4                                        # /mnt/ecopetrol y /home/nis desde 172.20.10.14 (vers=4.2)
+```
+
+`verify.sh client` comprueba la tabla de permisos que pide la rúbrica, creando un archivo de prueba que borra al final:
+
+| Acción en el cliente | Resultado obtenido |
+|---|---|
+| `lab.icpet1` crea un archivo en `/mnt/ecopetrol/ensayos` | OK; dueño `lab.icpet1:icpet` (grupo heredado por setgid) |
+| `lab.icpet2` (mismo grupo) lo modifica | OK |
+| `admin.ti` (grupo extra `icpet`) lista la carpeta | OK |
+| `fin.bogota` (grupo `administrativa`) hace `ls`, `touch` o `cat` | `Permission denied` |
+| `root` del cliente crea un archivo o lista `/mnt/ecopetrol` | `Permission denied`, por `root_squash` |
+| `root` del cliente lee `/home/nis/lab.icpet1/.bashrc` | `Permission denied` |
+| `lab.icpet1` entra por SSH (§7) | Su home `/home/nis/lab.icpet1` está servido por NFS (`172.20.10.14:/home/nis`) |
+
+Resultado (2026-11-20): servidor **7/7** y cliente **9/9**, también después de reiniciar las dos VM.
+
 ### Capturas
+![](capturas/nfs/01_exportfs-v.png)
+![](capturas/nfs/02_cliente-findmnt.png)
+![](capturas/nfs/03_permisos-grupo-icpet.png)
+![](capturas/nfs/04_fin.bogota-denegado.png)
+![](capturas/nfs/05_root-squash.png)
+
 ### Problemas encontrados
+| Síntoma | Causa | Solución |
+|---|---|---|
+| Los `.env.example` de NIS y NFS apuntaban a `192.168.100.178` con una subred `/24` | Se escribieron con la red de la casa de quien los desarrolló | `SERVER_IP=172.20.10.14` y `SUBRED=172.20.10.0/28` (en NIS, máscara `255.255.255.240`). Con la /24, los exports y `securenets` no habrían correspondido a la red real |
+| En el servidor, `ls -ld /srv/nfs/ecopetrol/ensayos` como `sysadmin` respondía `Permission denied` | Es el comportamiento esperado: `sysadmin` no pertenece a `icpet` y la carpeta es `2770` | Revisar con `sudo` o con un usuario del grupo. Confirma que los permisos se aplican también en el servidor |
+| `admin.ti` no habría podido entrar a `/mnt/ecopetrol` aunque es miembro de `icpet` | La caché de grupos de `nscd` en el cliente ocultaba sus grupos secundarios (§7) | `client-setup.sh` de NIS la desactiva; ahora `sudo -u admin.ti ls /mnt/ecopetrol/ensayos` funciona |
+| (Diseño) La guía del enunciado exporta con `no_root_squash` | Con esa opción, el root de cualquier cliente es root en el servidor | Se usa `root_squash`; la captura `nfs/05` muestra que el root del cliente queda sin acceso |
 
 ## 9. Samba (D)
 
