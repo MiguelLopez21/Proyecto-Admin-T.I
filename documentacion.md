@@ -1,7 +1,7 @@
 # Documentación técnica: infraestructura de TI para Ecopetrol (sede Bogotá)
 
 > Proyecto final de Administración de Infraestructura de TI, Universidad del Quindío.
-> Esqueleto con índice y plantilla por servicio. Cada responsable completa su sección y D consolida y revisa.
+> Equipo: Tomas Aristizabal (A), Juan Fernando Smith (B), Juan Manuel Peña (C) y Miguel Angel Lopez (D).
 
 ## Índice
 
@@ -45,10 +45,12 @@ Este proyecto implementa la infraestructura de TI de la sede Bogotá de Ecopetro
 
 | Rol | Integrante | Responsabilidad |
 |---|---|---|
-| A | _nombre_ | VM, red, Dokploy, DNS y HTTPS, integración |
-| B | _nombre_ | NTP, base de datos y web |
-| C | _nombre_ | NIS y NFS |
-| D | Miguel López | Samba, CUPS y documentación |
+| A | Tomas Aristizabal | VM, red, Dokploy, DNS y HTTPS, integración |
+| B | Juan Fernando Smith | NTP, base de datos y web |
+| C | Juan Manuel Peña | NIS y NFS |
+| D | Miguel Angel Lopez | Samba, CUPS y documentación |
+
+La bitácora de capturas del desarrollo, en orden y con una explicación de cada paso, está en [`bitacora-capturas.pdf`](bitacora-capturas.pdf).
 
 ### Entorno
 

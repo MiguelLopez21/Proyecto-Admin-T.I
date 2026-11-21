@@ -46,6 +46,7 @@ Extras: cortafuegos con UFW y la cadena `DOCKER-USER` ([`codigo/servidor/ufw.sh`
 ├── analisis.md          Análisis de necesidades, justificación de servicios y tabla de requisitos
 ├── diagrama.mmd         Diagrama de arquitectura (Mermaid)
 ├── documentacion.md     Documentación técnica: instalación, verificación, capturas y problemas
+├── bitacora-capturas.pdf  Las 62 capturas del desarrollo, en orden y explicadas
 ├── capturas/            Evidencias, una carpeta por servicio
 ├── codigo/
 │   ├── servidor/        Preparación de la VM, IP fija, certificado, cortafuegos y CHECKLIST.md
