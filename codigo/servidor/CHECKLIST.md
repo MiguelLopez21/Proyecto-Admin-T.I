@@ -122,6 +122,6 @@ sudo bash codigo/servidor/ufw.sh --estado
 
 ## 8. Antes de la demo
 
-- [ ] `sudo ss -tulpn` → solo los puertos de la tabla común (captura `servidor/09_ss-tulpn-puertos`).
-- [ ] Todos los servicios `Running` en Dokploy (captura `dokploy/07_servicios-todos-running`).
-- [ ] Exportar la VM a OVA y **snapshot `03-pre-demo`** (VM apagada).
+- [x] `sudo ss -tulpn` → los puertos de la tabla común, más `rpc.mountd`/`rpc.statd` de NFSv3 y los de Swarm, bloqueados por el cortafuegos (captura `servidor/09_ss-tulpn-puertos`, 2026-11-20).
+- [x] Todos los servicios `Running` en Dokploy (captura `dokploy/07_servicios-todos-running`, 2026-11-20).
+- [ ] Exportar la VM a OVA y **snapshot `05-pre-demo`** de `srv-ecopetrol` y `cli-icpet` (VM apagadas; ya existen `03-antes-red-casa` y `04-nis-nfs`). Antes, volver al modo demo de red (`red-modo.sh demo`).

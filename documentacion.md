@@ -120,11 +120,12 @@ Las contraseñas no se guardan en el repositorio: van en las variables de entorn
 | chrony (NTP) | 4.5 | Imagen `alpine:3.20` (servidor) · paquete de Ubuntu 4.5 (cliente) |
 | Nginx (Web) | 1.27 | Imagen `nginx:1.27-alpine` |
 | Node.js (API) | 20 | Imagen `node:20-alpine` |
-| Samba | serie 4.19 | Imagen `alpine:3.20` (versión exacta al desplegar: `smbd --version`) |
-| CUPS | 2.4 | Imagen `debian:12-slim` (versión exacta al desplegar: `cupsd -v`) |
-| NIS / NFS | _pendiente (C)_ | Paquetes de Ubuntu 24.04 |
-| Samba | 4.19.9 | Imagen `alpine:3.20` |
+| Samba | 4.19.9 (`smbd --version` en el contenedor desplegado) | Imagen `alpine:3.20` |
 | CUPS | 2.4.2 (paquete `2.4.2-3+deb12u9`) | Imagen `debian:12-slim` |
+| NIS | `nis` 4.5, `ypserv` 4.2, `rpcbind` 1.2.6 | Paquetes de Ubuntu 24.04 (servidor y cliente) |
+| NFS | `nfs-kernel-server` / `nfs-common` 2.6.4 | Paquetes de Ubuntu 24.04 (servidor / cliente) |
+| Clientes de prueba Samba/CUPS | `smbclient` 4.19.5, `cups-client` 2.4.7 | Paquetes de Ubuntu 24.04 en `cli-icpet` |
+
 ## 1. VM y red (A)
 
 ### Objetivo
@@ -214,6 +215,10 @@ curl -I http://localhost:3000   # 200 (o 307 a /register antes de crear el admin
 ![](capturas/dokploy/01c_registro-admin.png)
 ![](capturas/dokploy/02_contenedores-healthy.png)
 ![](capturas/dokploy/03_proyecto-ecopetrol.png)
+
+Proyecto `Ecopetrol-TI` con todos los servicios desplegados (`web`, `ntp`, `samba`, `cups` y la base `ecopetrol-db`), todos en verde:
+
+![](capturas/dokploy/07_servicios-todos-running.png)
 
 ### Problemas encontrados
 | Síntoma | Causa | Solución |
@@ -621,7 +626,14 @@ Windows: `net use Z:` conecta con `fin.bogota` y se puede crear un archivo.
 
 Resultado en laboratorio (2026-11-20, VM Multipass `172.28.193.238`): `verify.sh server` 4/4 `[OK]` y `verify.sh client` 4/4 `[OK]`. `testparm -s` carga la configuración sin errores y `pdbedit -L` lista `fin.bogota` (2021), `rrhh.bogota` (2022) y `admin.ti` (2001). Desde Windows 11, `net use Z:` conecta con `fin.bogota` y un archivo creado en Z: aparece en el servidor con dueño `fin.bogota` y grupo `administrativa`. `lab.icpet1` y el acceso anónimo son rechazados.
 
+Resultado en `srv-ecopetrol` (2026-11-20, desplegado con Dokploy desde `main`; contenedor `healthy`, puerto 445):
+- `verify.sh server` **4/4** `[OK]`, y `pdbedit -L` lista `fin.bogota:2021`, `admin.ti:2001` y `rrhh.bogota:2022`, los mismos UID que en NIS.
+- `verify.sh client 172.20.10.14` desde `cli-icpet` **4/4** `[OK]`: `fin.bogota` ve el recurso, escribe y lista; `lab.icpet1` y el anónimo son rechazados.
+- Desde Windows, el puerto 445 responde a través del cortafuegos (§12), que deja pasar la subred `/28`.
+
 ### Capturas
+Laboratorio (Multipass):
+
 ![](capturas/samba/01_build-local.png)
 ![](capturas/samba/02_testparm.png)
 ![](capturas/samba/03_pdbedit-usuarios.png)
@@ -631,9 +643,15 @@ Resultado en laboratorio (2026-11-20, VM Multipass `172.28.193.238`): `verify.sh
 ![](capturas/samba/07_usuario-no-autorizado-denegado.png)
 ![](capturas/samba/08_mac-o-linux-smbclient.png)
 
+Servidor final `srv-ecopetrol` (Dokploy):
+
+![](capturas/samba/09_dokploy-contenedor-y-verify-server.png)
+![](capturas/samba/10_cliente-acceso-y-denegaciones.png)
+
 ### Problemas encontrados
 | Síntoma | Causa | Solución |
 |---|---|---|
+| En el servidor final, `verify.sh client` dio `NT_STATUS_LOGON_FAILURE` para `fin.bogota` al pasarle la clave leída del `.env` que genera Dokploy | Dokploy escribe las variables entre comillas (`SMB_PASSWORD="…"`) y la clave se pasó con las comillas incluidas. El contenedor sí la recibió bien, porque Docker Compose quita las comillas | Quitar las comillas al leerla. Después, 4/4. Además, ese `.env` queda con permisos 644 en `/etc/dokploy/compose/`: cualquier usuario del servidor puede leerlo (limitación de Dokploy) |
 | `verify.sh client` marcaba `acceso anonimo NO fue denegado` con `tree connect failed: NT_STATUS_CONNECTION_DISCONNECTED` | Samba corta la conexión del anónimo en lugar de responder `ACCESS_DENIED`; el script solo aceptaba ese error y `LOGON_FAILURE` | Agregar `CONNECTION_DISCONNECTED` al patrón del script. El acceso anónimo sí estaba denegado: no lista nada |
 | `verify.sh client` fallaba con `NT_STATUS_LOGON_FAILURE` para `fin.bogota`, aunque desde Windows esa cuenta sí entraba | La clave se tecleó mal en el prompt oculto (`read -rs`), que no muestra lo que se escribe | Comparar la longitud de lo escrito (`echo ${#SMB_PASSWORD}`) con la de `.env`, probar con `smbclient -L` y volver a introducirla |
 
@@ -676,7 +694,14 @@ docker exec <cups> ls -l /var/spool/cups-pdf/ANONYMOUS    # aparece el PDF nuevo
 ```
 Resultado en laboratorio (2026-11-20, VM Multipass `172.28.193.238`): `verify.sh server` 4/4 `[OK]` (contenedor corriendo, `scheduler is running`, cola `Ecopetrol-Bogota-PDF` activa en estado idle/enabled y puerto 631 escuchando). `verify.sh client` 2/2 `[OK]`: lista la cola y envía un trabajo (`request id is Ecopetrol-Bogota-PDF-2`). En `/var/spool/cups-pdf/ANONYMOUS/` quedaron dos PDF, ambos propiedad de `nobody:nogroup` y legibles por todos porque los usuarios remotos no tienen cuenta local: el de la página de prueba de Windows 11 (31 408 bytes) y el del trabajo enviado por `verify.sh client` (5 174 bytes). `lpstat -p` confirma, desde la VM y desde el contenedor, que la cola está idle y habilitada.
 
+Resultado en `srv-ecopetrol` (2026-11-20, desplegado con Dokploy desde `main` con `ALLOW_SUBNET=172.20.10.0/28`; contenedor `healthy`, puerto 631):
+- `verify.sh server` **4/4** `[OK]`.
+- `verify.sh client 172.20.10.14` desde `cli-icpet` **2/2** `[OK]`: `lpstat` lista la cola y `lp` envía el trabajo (`request id is Ecopetrol-Bogota-PDF-2`); el PDF aparece en `/var/spool/cups-pdf/ANONYMOUS`.
+- Desde Windows 11 (`172.20.10.1`), la impresora se agregó por IPP con *Microsoft PS Class Driver*. Las páginas de prueba llegaron como trabajos 3, 4 y 5 (`Print-Job successful-ok` en el log de CUPS) y generaron su PDF.
+
 ### Capturas
+
+Laboratorio (Multipass):
 
 ![](capturas/cups/01_web-admin.png)
 
@@ -690,71 +715,106 @@ Resultado en laboratorio (2026-11-20, VM Multipass `172.28.193.238`): `verify.sh
 
 ![](capturas/cups/06_pdf-generado.png)
 
+Servidor final `srv-ecopetrol` (Dokploy):
+
+![](capturas/cups/07_dokploy-contenedor-y-verify-server.png)
+![](capturas/cups/08_cliente-imprime-por-ipp.png)
+![](capturas/cups/09_pdf-generado-desde-cli-icpet.png)
+
 ### Problemas encontrados
 
 | Síntoma | Causa | Solución |
 |---|---|---|
+| Los PDF salen con nombres como `hostname__usuarios_remotos_sin_cuenta_local_quedan_legibles.pdf` | El sufijo coincide palabra por palabra con el comentario de la línea 4 de `config/cups-pdf.conf`: cups-pdf lo está tomando como parte de la configuración | Es cosmético: la impresión funciona. Pendiente de probar: quitar ese comentario y volver a desplegar |
 | `lpstat -p` mostraba la cola "enabled since ... 16:05:03" desde la VM y "21:05:03" dentro del contenedor; los logs de CUPS salían con `+0000` | El contenedor usa UTC y la VM usa hora de Colombia (UTC-5): es la misma hora con 5 horas de diferencia | No afecta al servicio. Al comparar capturas y logs se interpreta la hora del contenedor como UTC |
 | `docker compose exec cups ...` respondía `service "cups" is not running` aunque el contenedor estaba corriendo | El comando se ejecutó desde `codigo/samba`: `docker compose` solo conoce los servicios del `docker-compose.yml` de la carpeta actual | Ejecutarlo dentro de `codigo/cups`, o usar `docker exec cups-cups-1 ...` desde cualquier carpeta |
 
 ## 11. Integración y pruebas cruzadas (A)
 
-Orden de despliegue y comandos en `codigo/servidor/CHECKLIST.md` §7. Estado al 2026-11-18 (servidor en `172.20.10.14`):
+Orden de despliegue y comandos en `codigo/servidor/CHECKLIST.md` §7. Estado al 2026-11-20: servidor en `172.20.10.14`, los seis servicios desplegados y el cortafuegos activo (§12).
 
 | Servicio | Despliegue | `verify.sh server` | Prueba de cliente | Captura |
 |---|---|---|---|---|
 | NTP | Dokploy (Compose) | 6/6 OK | Linux `cli-icpet`: `^*` y `verify.sh client` 2/2 OK; Windows: fuente `172.20.10.14`, 0,1 ms | `ntp/03`, `ntp/04`, `ntp/05` |
 | Base de datos | Dokploy (Database) | — (sin puerto publicado) | La API la lee: `/api/health` `db: ok`, 5 sedes | `web/05`, `web/02` |
 | Web | Dokploy (Compose) + autodeploy por sondeo | 7/7 OK | `verify.sh client` 4/4 (HTTPS sin `-k`); navegador Windows con la CA | `web/01`–`web/06b` | |
-| NIS | _pendiente (C)_ | | | |
-| NFS | _pendiente (C)_ | | | |
-| Samba | Dokploy (Compose), pendiente de despliegue por A; probado en laboratorio (Multipass) | 4/4 OK (laboratorio) | Windows: `net use Z:` y escritura OK; `lab.icpet1` y anónimo denegados; `verify.sh client` 4/4 OK | `samba/04`–`samba/08` |
-| CUPS | Dokploy (Compose), pendiente de despliegue por A; probado en laboratorio (Multipass) | 4/4 OK (laboratorio) | Windows: impresora agregada por IPP y página de prueba; `verify.sh client` 2/2 OK | `cups/03`–`cups/06` |
+| NIS | Host (`codigo/nis/install.sh`) | 9/9 OK | `cli-icpet`: `verify.sh client` 12/12, con login SSH real de `lab.icpet1` y contraseña incorrecta rechazada | `nis/01`–`nis/06` |
+| NFS | Host (`codigo/nfs/install.sh`) | 7/7 OK | `cli-icpet`: `verify.sh client` 9/9; permisos por grupo `icpet`, `fin.bogota` denegado, `root_squash` | `nfs/01`–`nfs/05` |
+| Samba | Dokploy (Compose) | 4/4 OK | `cli-icpet`: `verify.sh client` 4/4. Windows: 445 alcanzable; en laboratorio, `net use Z:` y escritura OK | `samba/09`, `samba/10` (y `samba/04`–`08` del laboratorio) |
+| CUPS | Dokploy (Compose) | 4/4 OK | `cli-icpet`: `verify.sh client` 2/2. Windows: impresora agregada por IPP y 3 páginas de prueba convertidas a PDF | `cups/07`–`cups/09` (y `cups/03`–`06` del laboratorio) |
+
+Pruebas cruzadas:
+- **Mismos UID/GID en NIS, NFS y Samba:**
+  - `getent passwd lab.icpet1` en `cli-icpet` devuelve 2011, igual que en el servidor.
+  - Los archivos creados por NFS quedan como `lab.icpet1:icpet`, no `nobody`.
+  - `pdbedit -L` en el contenedor de Samba lista `fin.bogota:2021`, `admin.ti:2001` y `rrhh.bogota:2022`.
+- **NIS + NFS:** `lab.icpet1` inicia sesión por SSH en `cli-icpet` con su contraseña de NIS y su home `/home/nis/lab.icpet1` viene del servidor por NFS (`nis/05`).
+- **Cortafuegos con todo desplegado:** los `verify.sh` siguen en OK; HTTPS (200), NTP, Samba (445) y CUPS (631) responden desde Windows, y un puerto fuera de la lista (9999) da *timeout* desde `cli-icpet` (`servidor/13b`).
+- **Puertos abiertos en el servidor:** `ss -tulpn` muestra solo los de la tabla de §0 más SSH, y UFW activo con reglas solo para la `/28`:
+
+![](capturas/servidor/09_ss-tulpn-puertos.png)
+
+`rpc.mountd` y `rpc.statd` también escuchan en puertos aleatorios: el paquete de NFS deja NFSv3 habilitado. No se usan, porque los clientes montan con NFSv4 en el 2049, y el cortafuegos los bloquea.
 
 ## 12. Extras
 
 - **Cortafuegos (A):** `codigo/servidor/ufw.sh`. UFW por sí solo no protege los puertos de los contenedores, porque Docker los publica en la cadena `FORWARD` antes de que UFW los vea. El script pone UFW con política *deny* para el anfitrión (SSH y los puertos de NIS/NFS) y filtra la cadena `DOCKER-USER` para que a los contenedores solo lleguen las subredes permitidas. Probado: desde una subred no permitida el panel (3000) y el HTTPS (443) dan *timeout* y el kernel registra `[DOCKER-USER BLOQUEADO]`; SSH y la salida a internet de los contenedores siguen funcionando, y las reglas sobreviven a un reinicio. Se activa al final, con todos los servicios desplegados (`CHECKLIST.md` §7b).
-- _Pendiente: backup automático, monitoreo, Docker Compose multi-contenedor._
+  - **Activo desde el 2026-11-20** con `sudo IFACE=enp0s3 PUERTOS_HOST="111 834 835 2049/tcp" bash codigo/servidor/ufw.sh`: rpcbind 111, NIS 834/835 y NFSv4 2049, solo para `172.20.10.0/28`.
+  - Los puertos de los contenedores (80, 443, 3000, 123, 445 y 631) los filtra `DOCKER-USER` con la misma subred, así que desplegar Samba y CUPS no requirió cambiar nada.
+  - Resultado: NIS 9/9 y 12/12, NFS 7/7 y 9/9, HTTPS 200 y NTP desde Windows, y el puerto 9999 da *timeout* desde `cli-icpet`.
+
+  ![](capturas/servidor/13_ufw-nis-nfs.png)
+  ![](capturas/servidor/13b_ufw-prueba-desde-cliente.png)
+- **Docker Compose multicontenedor (B):** la web es un solo Compose con dos contenedores: Nginx con el sitio y la API Node, que consulta PostgreSQL por la red interna de Dokploy (§6).
+- No se implementaron backup automático ni monitoreo con alertas.
 
 ## 13. Problemas generales
 
 - **Red de la demo:** se eligió el hotspot de un celular (subred `172.20.10.0/28`) para tener la misma red en casa y en la universidad, porque muchas redes Wi-Fi universitarias aíslan clientes o rechazan una segunda MAC en el adaptador puente. Ojo: es una **/28**, no una /24, y eso afecta `allow` de chrony, `exports` de NFS y los `Allow` de Samba/CUPS.
 - **VirtualBox y Hyper-V no conviven bien:** en Windows 11 el hipervisor puede quedar activo aunque Hyper-V "no esté instalado" (Windows Home), por la Integridad de memoria, Windows Hello mejorado o WSL2. VirtualBox arranca igual, pero en modo NEM, lento e inestable. Hay que revisarlo antes de montar cualquier servidor en VirtualBox (detalle en §1).
 - **Certificado propio:** cada cliente tiene que importar `ca.crt` una vez; Firefox usa su propio almacén.
-- _Pendiente (C y D): UID/GID entre servicios._
-
-- **UID/GID entre servicios:** NIS y NFS comparten los mismos UID y GID, y Samba crea sus cuentas dentro de su contenedor con esos valores (`fin.bogota` 2021, `rrhh.bogota` 2022, `admin.ti` 2001; grupo `administrativa` 3003), para que los dueños de los archivos coincidan entre servicios. Las **contraseñas de Samba son aparte** (`smbpasswd`) y no son las de NIS, así que hay que mantenerlas en los dos sitios. CUPS solo usa `admin.ti` dentro de su contenedor. _(Pendiente C: coincidencia con NIS y NFS.)_
+- **UID/GID entre servicios:** NIS y NFS comparten los mismos UID y GID, y Samba crea sus cuentas dentro de su contenedor con esos valores (`fin.bogota` 2021, `rrhh.bogota` 2022, `admin.ti` 2001; grupo `administrativa` 3003), para que los dueños de los archivos coincidan entre servicios. Las **contraseñas de Samba son aparte** (`smbpasswd`) y no son las de NIS, así que hay que mantenerlas en los dos sitios. CUPS solo usa `admin.ti` dentro de su contenedor. Comprobado en el servidor final: los UID de `pdbedit -L` (Samba) coinciden con los de `ypcat passwd` (NIS), y los archivos creados por NFS muestran el usuario y el grupo correctos en servidor y cliente (§11).
+- **Red de casa sin hotspot (modo casa):** mientras no se pudo usar el hotspot, las VM siguieron con su IP de la demo en una red *host-only* de VirtualBox (`172.20.10.0/28`, Windows en `172.20.10.1`) y salieron a internet por una segunda tarjeta NAT. Se cambia de modo con un script auxiliar (`red-modo.sh casa|demo`, en `/usr/local/sbin` de cada VM; no forma parte del repositorio): el modo demo restaura el netplan original con gateway `172.20.10.1`. Por eso el cortafuegos fija `IFACE=enp0s3` (§12) y en las pruebas de esos días Windows aparece como `172.20.10.1` y no `172.20.10.2`.
+- **Commit que dejó un script cortado:** un commit subido en paralelo a `servicio/nis-nfs` dejó `codigo/nfs/install.sh` truncado a mitad de un `sed`: sin `exportfs` ni arranque de `nfs-server`. Se detectó al comparar con la versión probada en la VM antes de integrar. Se conservó la versión probada, idéntica a la ejecutada en el servidor (mismo `md5sum`).
 - **Entorno de pruebas con Multipass:** al crear la VM de pruebas (`multipass launch 24.04 --name srv-samba-lab ...`) se repitió el comando con solo el nombre de la VM y Multipass respondió que no encontraba una imagen con ese nombre: interpretó el nombre como una imagen. La VM ya existía; bastaba `multipass list` y `multipass shell srv-samba-lab`.
 - **Cambios en la rama equivocada:** el arreglo de `verify.sh` se editó desde la web de GitHub en `main` y no en `servicio/samba-cups`, y en la VM el `git pull` decía `Already up to date` mientras el script seguía fallando. Se corrigió repitiendo el cambio en la rama correcta. Conviene confirmar la rama antes de editar.
 - **Push rechazado:** al subir una captura, `git push` dio `rejected ... (fetch first)` porque la rama remota tenía un commit que el equipo local no tenía. Solución: `git pull` (que abre el editor para el mensaje del merge) y luego `git push`. Conviene hacer `git pull` antes de cada push cuando se edita también desde GitHub.
 - **Conflicto en `verify.sh`:** al fusionar el PR #7, GitHub marcó un conflicto porque `verify.sh` cambió en `main` y en la rama a la vez. Se conservó la versión probada en el laboratorio.
 - **Git dentro de OneDrive:** al cambiar de rama apareció `Deletion of directory 'docs' failed. Should I try again? (y/n)`, porque OneDrive mantenía abierta la carpeta vacía. El cambio de rama ya se había hecho y se respondió `n`. Conviene tener el repositorio fuera de OneDrive.
+
 ## 14. Conclusiones
 
-_Pendiente: resultados, lecciones aprendidas, análisis costo-beneficio._
+### Resultados
 
-### Resultados(D)
-
-Un único servidor aloja los servicios del proyecto. Todo lo desplegado se comprobó con scripts `verify.sh` reproducibles:
+Un único servidor aloja los servicios del proyecto: los seis que pide el enunciado (Web, NTP, NFS, NIS, CUPS y Samba), además de la base de datos, Dokploy con HTTPS y, como extras, el cortafuegos y un Compose multicontenedor. Todo lo desplegado se comprobó con scripts `verify.sh` reproducibles:
 
 | Servicio | Resultado |
 |---|---|
 | NTP | `verify.sh server` 6/6 OK; clientes Linux y Windows sincronizados con desfases de milisegundos |
 | Base de datos | PostgreSQL 16 sin puertos publicados; la API la lee (`/api/health` con `db: ok`) |
 | Web | HTTPS con CA propia; `verify.sh` servidor 7/7 y cliente 4/4; autodeploy por sondeo |
-| Samba | `verify.sh` servidor 4/4 y cliente 4/4; acceso anónimo y usuarios no autorizados denegados |
-| CUPS | `verify.sh` servidor 4/4 y cliente 2/2; cada trabajo genera un PDF |
-| NIS y NFS | _Pendiente (C)_ |
+| NIS | `verify.sh` servidor 9/9 y cliente 12/12; login SSH real con la cuenta central y contraseña incorrecta rechazada |
+| NFS | `verify.sh` servidor 7/7 y cliente 9/9; permisos por grupo, `root_squash` y homes de NIS servidos por red |
+| Samba | `verify.sh` servidor 4/4 y cliente 4/4 en el servidor final; acceso anónimo y usuarios no autorizados denegados |
+| CUPS | `verify.sh` servidor 4/4 y cliente 2/2 en el servidor final; impresión desde Windows por IPP, y cada trabajo genera un PDF |
+| Cortafuegos | Activo; todos los servicios siguen respondiendo desde la `/28` y lo demás queda bloqueado |
 
 ### Lecciones aprendidas
 
 - **Los entornos de virtualización importan:** VirtualBox sobre un Windows con el hipervisor de Hyper-V activo corría en modo NEM, lento e inestable (§1). Revisar eso antes de montar el servidor habría ahorrado horas.
 - **Certificados en red privada:** Let's Encrypt no es posible sin acceso desde internet; una CA propia resolvió el HTTPS a costa de importar `ca.crt` en cada cliente (§3).
 - **Automatizar la verificación:** los `verify.sh` encontraron fallos reales, como un patrón de error que no cubría la respuesta real de Samba (§9), y dejan una prueba repetible para la demo.
+- **Los servicios clásicos tienen trampas de las distribuciones modernas:** en Ubuntu 24.04, `systemd-logind` bloquea por defecto las consultas de red que necesita NIS, y `nscd` (instalado como dependencia) escondía los grupos secundarios, lo que rompía los permisos de NFS (§7 y §8). Solo se vio probando con usuarios reales de punta a punta.
+- **Un mismo identificador en todos los servicios:** fijar desde el análisis los UID y GID de cada usuario hizo que NIS, NFS y Samba encajaran sin traducciones. Los archivos tienen el mismo dueño desde cualquier cliente.
 - **Control de versiones:** editar a la vez desde GitHub y desde el equipo local, y en ramas distintas, provocó rechazos de push y conflictos (§13). Conviene trabajar en una rama por tarea y hacer `git pull` antes de cada push.
 
 ### Análisis costo-beneficio
 
-- **Costo:** todo el software es libre y no tiene licencias (Ubuntu, Docker, Dokploy, Traefik, PostgreSQL, Nginx, Node.js, chrony, Samba y CUPS). El costo real es el tiempo de configuración, un servidor modesto (2 vCPU, 6 GB de RAM, 40 GB de disco) y la red de la demo.
-- **Beneficio:** hora única y coherente para los registros de todos los servicios, archivos compartidos con autenticación por usuario, impresión centralizada y un portal web, todo reproducible desde el repositorio.
-- **Limitaciones:** un único servidor es un punto único de fallo, y cada cliente debe importar la CA propia para evitar las advertencias de HTTPS.
+- **Costo:** todo el software es libre y no tiene licencias (Ubuntu, Docker, Dokploy, Traefik, PostgreSQL, Nginx, Node.js, chrony, NIS, NFS, Samba y CUPS). El costo real es el tiempo de configuración, un servidor modesto (2 vCPU, 6 GB de RAM, 40 GB de disco) y la red de la demo.
+- **Beneficio:** hora única y coherente para los registros de todos los servicios, cuentas de usuario centralizadas para los equipos Linux, archivos compartidos con autenticación por usuario (NFS para Linux y Samba para Windows), impresión centralizada y un portal web, todo reproducible desde el repositorio.
+- **Limitaciones:**
+  - Un único servidor es un punto único de fallo.
+  - Cada cliente debe importar la CA propia para evitar las advertencias de HTTPS.
+  - NIS envía los hashes de contraseña sin cifrar; es aceptable en una LAN cerrada de laboratorio, pero en producción se reemplazaría por LDAP + Kerberos.
+  - Las contraseñas de Samba se mantienen aparte de las de NIS.
+  - No hay backup automático ni monitoreo.
